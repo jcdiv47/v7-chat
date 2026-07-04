@@ -202,7 +202,7 @@ Pipe the agent's UI message stream into `@convex-dev/persistent-text-streaming` 
 
 Messages are stored in Convex as AI SDK UI messages: role plus ordered parts.
 
-- The stored assistant message keeps full parts fidelity — reasoning, tool calls with inputs and output summaries, text — because stream chunks are deleted after the run and prior sessions must still render folded thinking and expandable tool rows.
+- The stored assistant message keeps full parts fidelity — reasoning, tool calls with inputs and output summaries, text — because stream chunks are deleted after the run and prior sessions must still render the collapsed work block with expandable tool rows.
 - Full tool result previews are not embedded in the message; tool parts reference the artifact / run event that holds them.
 
 Model context for a new turn is built from the thread's messages with a compaction policy:

@@ -77,6 +77,7 @@ export function ChatApp({ threadId }: { threadId?: Id<"threads"> }) {
             <button
               onClick={() => setSidebarOpen(true)}
               title="Open sidebar"
+              aria-label="Open sidebar"
               className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <PanelLeft className="size-4" />
@@ -86,6 +87,7 @@ export function ChatApp({ threadId }: { threadId?: Id<"threads"> }) {
             <button
               onClick={() => setSearchOpen(true)}
               title="Search (⌘K)"
+              aria-label="Search conversations"
               className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <Search className="size-4" />
@@ -94,18 +96,21 @@ export function ChatApp({ threadId }: { threadId?: Id<"threads"> }) {
           <div className="flex-1 truncate text-sm font-medium">
             {thread?.title ?? "New chat"}
           </div>
-          <button
-            onClick={() =>
-              artifactRunId ? setArtifactRunId(null) : openThreadArtifacts()
-            }
-            title="Toggle artifact panel"
-            className={cn(
-              "rounded-md p-1.5 hover:bg-accent hover:text-foreground",
-              artifactRunId ? "text-foreground" : "text-muted-foreground",
-            )}
-          >
-            <PanelRight className="size-4" />
-          </button>
+          {latestRun && (
+            <button
+              onClick={() =>
+                artifactRunId ? setArtifactRunId(null) : openThreadArtifacts()
+              }
+              title="Toggle artifact panel"
+              aria-label="Toggle artifact panel"
+              className={cn(
+                "rounded-md p-1.5 hover:bg-accent hover:text-foreground",
+                artifactRunId ? "text-foreground" : "text-muted-foreground",
+              )}
+            >
+              <PanelRight className="size-4" />
+            </button>
+          )}
         </header>
 
         <div className="flex min-h-0 flex-1">

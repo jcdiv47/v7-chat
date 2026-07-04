@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUp, ChevronDown, Plus, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,11 @@ const MODEL_LABELS: Record<ModelAlias, string> = {
   summarizer: "Summarizer",
 };
 
+function grow(el: HTMLTextAreaElement) {
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
+}
+
 export function Composer({
   onSend,
   onStop,
@@ -27,35 +32,50 @@ export function Composer({
   stopping,
   modelAlias,
   onModelAliasChange,
+  threadId,
 }: {
-  onSend: (text: string) => void;
+  onSend: (text: string) => Promise<void>;
   onStop: () => void;
   streaming: boolean;
   stopping: boolean;
   modelAlias: ModelAlias;
   onModelAliasChange: (alias: ModelAlias) => void;
+  threadId?: string;
 }) {
   const [value, setValue] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
   const ref = useRef<HTMLTextAreaElement>(null);
 
-  const send = () => {
+  // Height must track programmatic value changes too (clear on send, restore on failure).
+  useEffect(() => {
+    if (ref.current) grow(ref.current);
+  }, [value]);
+
+  useEffect(() => {
+    if (!streaming) ref.current?.focus();
+  }, [streaming, threadId]);
+
+  const send = async () => {
     const text = value.trim();
-    if (!text || streaming) return;
-    onSend(text);
+    if (!text) return;
     setValue("");
-    if (ref.current) ref.current.style.height = "auto";
+    setSendError(null);
+    try {
+      await onSend(text);
+    } catch {
+      setValue((v) => (v ? `${text}\n\n${v}` : text));
+      setSendError("Couldn't send the message — it was restored to the input.");
+    }
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
+      // Enter that confirms an IME composition (Chinese/Japanese/Korean input)
+      // must not send the message.
+      if (e.nativeEvent.isComposing) return;
       e.preventDefault();
-      send();
+      void send();
     }
-  };
-
-  const grow = (el: HTMLTextAreaElement) => {
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   };
 
   return (
@@ -75,7 +95,14 @@ export function Composer({
         />
         <div className="flex items-center justify-between px-2.5 pb-2.5">
           <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon-sm" className="text-muted-foreground" title="Attach (coming soon)" disabled>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
+              title="Attach (coming soon)"
+              aria-label="Attach (coming soon)"
+              disabled
+            >
               <Plus />
             </Button>
             <DropdownMenu>
@@ -106,6 +133,7 @@ export function Composer({
               onClick={onStop}
               disabled={stopping}
               title="Stop"
+              aria-label="Stop run"
               className="rounded-full"
             >
               <Square className="fill-current" />
@@ -113,9 +141,10 @@ export function Composer({
           ) : (
             <Button
               size="icon"
-              onClick={send}
+              onClick={() => void send()}
               disabled={!value.trim()}
               title="Send"
+              aria-label="Send message"
               className="rounded-full"
             >
               <ArrowUp />
@@ -123,10 +152,18 @@ export function Composer({
           )}
         </div>
       </div>
-      <p className="mt-2 text-center text-[11px] text-muted-foreground">
-        {stopping
-          ? "Stopping after the current step…"
-          : "Queries run read-only against cities, malls, and stores."}
+      <p
+        className={cn(
+          "mt-2 text-center text-[11px]",
+          sendError ? "text-destructive" : "text-muted-foreground",
+        )}
+      >
+        {sendError ??
+          (stopping
+            ? "Stopping after the current step…"
+            : streaming
+              ? "Press Enter to queue a message for after this run."
+              : "Queries run read-only against cities, malls, and stores.")}
       </p>
     </div>
   );

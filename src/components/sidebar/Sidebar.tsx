@@ -189,6 +189,7 @@ function ThreadRow({
             rename({ threadId: thread._id, title: draft });
         }}
         onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return;
           if (e.key === "Enter") e.currentTarget.blur();
           if (e.key === "Escape") {
             setDraft(thread.title);
@@ -217,6 +218,7 @@ function ThreadRow({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
+            aria-label="Thread options"
             className={cn(
               "rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100",
             )}
@@ -287,6 +289,7 @@ function IconBtn({
   return (
     <button
       title={title}
+      aria-label={title}
       onClick={onClick}
       className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >

@@ -11,7 +11,7 @@ const SUGGESTIONS = [
 
 export function EmptyState({ onPick }: { onPick: (q: string) => void }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-4 pb-16">
+    <div className="flex min-h-full flex-col items-center justify-center px-4 pb-16">
       <div className="mb-6 flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
         <BarChart3 className="size-6" />
       </div>
@@ -27,7 +27,7 @@ export function EmptyState({ onPick }: { onPick: (q: string) => void }) {
           <button
             key={q}
             onClick={() => onPick(q)}
-            className="rounded-xl border border-border bg-card px-4 py-3 text-left text-sm text-foreground/90 transition-colors hover:border-ring/50 hover:bg-accent"
+            className="rounded-xl border border-border bg-card px-4 py-3 text-left text-sm text-foreground/90 transition-colors hover:border-ring/50 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {q}
           </button>

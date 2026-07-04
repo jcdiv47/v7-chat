@@ -135,50 +135,66 @@ The empty state offers example questions as clickable suggestion chips, not mark
 
 ## Thinking And Tool-Call Rendering
 
-This is the core interaction behavior. A single assistant turn interleaves three kinds of content — reasoning (thinking), tool
-calls, and the final response — and moves through a live phase and a folded phase.
+This is the core interaction behavior. A single assistant turn interleaves three kinds
+of content — reasoning (thinking), tool calls, and the final response. Everything
+except the final response renders inside one collapsible **work block** per turn.
 
-### Live Phase (while streaming)
+### The Work Block
 
-- **Thinking tokens stream visibly.** As the agent emits reasoning, show it in a live,
-  muted "thinking" block so the user sees the model working.
-- **Tool calls render as they happen.** Each tool call appears as a compact summary row
-  with a leading icon, a human-readable label, and a live status (running → done →
-  error). Examples of labels: `Searched code and listed files`, `Read 4 files`,
-  `Listed files, ran a command`.
-- Adjacent tool calls of the same kind may collapse into one summarized row
-  (e.g. `Read 4 files`).
+- All of a turn's work — reasoning, tool calls, and any intermediate text the model
+  emitted between tool calls — renders inside a single collapsible block, in stream
+  order, as a timeline along a vertical rail.
+- The block header is the fold control. While the agent is still reasoning or calling
+  tools it shows a spinner and `Working…`; once the final answer starts it shows
+  `Worked for Ns`. The duration freezes the moment work completes, so the header stays
+  stable while the answer streams.
+- Reasoning and intermediate text render as muted prose on the rail.
+- Each tool call is a dot on the rail with a status color (running → done → error) and
+  a human-readable label derived from the tool and its input, e.g.
+  `Loaded skill mall-domain-analysis`, `Described malls`, `Ran SQL query`. Tool calls
+  are not grouped; each call is its own row. A row expands in place to reveal detail:
+  arguments, the SQL, and a result preview.
 - **Streaming survives refresh.** The live view is driven by run state in Convex, not
   by the HTTP response alone; see "Refresh And Reattach" below.
 
-### Folded Phase (after the step completes)
+### Open / Collapsed Lifecycle
 
-- **Thinking folds up** into a single collapsed header summarizing the effort, e.g.
-  `Worked for 31s ⌄`. Expanding it reveals the streamed reasoning.
-- **Tool calls fold** into their compact summary rows. Each row is expandable to reveal
-  detail: the specific files read, the command run, arguments, and a result preview.
-- **The final response then streams** as normal assistant text below the folded blocks.
+- **While working**, the block is open and streams reasoning, tool rows, and
+  intermediate text as they arrive.
+- **When the final answer starts**, the block collapses to `Worked for Ns` and the
+  answer streams below it as normal assistant text.
+- A manual toggle on the header overrides the automatic state in either direction,
+  both live and for completed turns.
+
+### What Counts As The Final Answer
+
+The final answer is the **trailing run of `text` parts** in the turn, rendered as
+markdown below the work block. While streaming, a text part is treated as final as
+soon as it starts; if a later tool call arrives, that text retroactively becomes
+intermediate work and folds back into the block. A consequence to preserve: when the
+model ends its turn with a tool call (e.g. saving an artifact after writing its
+answer), the answer text lives inside the work block and the turn renders no prose
+below the fold.
 
 ### Interleaving
 
-Within one turn the order can be: thinking → tool group → intermediate text → thinking →
-tool group → final answer. Preserve this interleaving; do not reorder parts. Group
-consecutive tool calls, but keep intermediate assistant text between groups where the
-agent produced it.
+Within one turn the order can be: thinking → tool calls → intermediate text → thinking →
+tool calls → final answer. Preserve this interleaving inside the work block; do not
+reorder parts.
 
 ### Refresh And Reattach
 
 Streaming is resumable (see `01-system-architecture.md` → Resumable Streaming):
 
 - On thread load, if the latest run is still `running`, render it in the live phase:
-  decode the persisted stream body into parts to rebuild the in-progress thinking
-  block, tool rows, and text, then continue appending from the Convex subscription.
+  decode the persisted stream body into parts to rebuild the in-progress work block
+  and any final text, then continue appending from the Convex subscription.
 - No content is duplicated or lost across the refresh; part order matches the original
   stream.
 - The composer stays in the streaming state: send remains a stop control, and stop
   still cancels the server-side run.
-- When the run finishes — whether or not this tab watched it live — the thinking block
-  and tool rows fold as normal and the final response is intact.
+- When the run finishes — whether or not this tab watched it live — the work block
+  folds as normal and the final response is intact.
 - If a `running` run's heartbeat is stale (the server died mid-run), render it as
   failed with its partial output and offer retry.
 
@@ -186,13 +202,15 @@ Streaming is resumable (see `01-system-architecture.md` → Resumable Streaming)
 
 The renderer is driven by the ordered `parts` of each streamed assistant UI message:
 
-- `reasoning` parts → thinking block (live), then the `Worked for Ns` folded summary.
-- `tool-*` / dynamic tool parts → tool-call rows. Use the part state to drive status:
-  `input-streaming` / `input-available` → running, `output-available` → done,
-  `output-error` → error. Render inputs (files, command, SQL) and an output summary in
-  the expanded view. Streamed tool parts carry only compact output summaries; the
-  expanded view fetches the full result preview from the run's artifacts/events.
-- `text` parts → assistant prose, including the final response.
+- `reasoning` parts → muted prose inside the work block.
+- `tool-*` / dynamic tool parts → tool rows on the work-block rail. Use the part state
+  to drive status: `input-streaming` / `input-available` → running,
+  `output-available` → done, `output-error` → error. Render inputs (SQL, arguments)
+  and an output summary in the expanded view. Streamed tool parts carry only compact
+  output summaries; the expanded view fetches the full result preview from the run's
+  artifacts/events.
+- `text` parts → the trailing run is the final answer below the block; any earlier
+  text renders inside the work block as intermediate work.
 
 The frontend should preserve, per message: assistant text, reasoning, tool call state
 and results summaries, artifact references, and final response metadata.
@@ -267,7 +285,8 @@ collapse, download.
 - Chat-first and content-focused; the conversation leads.
 - Calm and readable: generous spacing, restrained neutral palette, clear hierarchy.
 - Full light and dark support.
-- Show the agent working: stream thinking and tool calls, then fold them cleanly.
+- Show the agent working: stream thinking and tool calls in the work block, then fold
+  it cleanly.
 - Keep SQL visible and copyable.
 - Do not hide uncertainty; show caveats.
 - Avoid decorative cards and marketing patterns.
@@ -296,7 +315,7 @@ type MessagePart =
   | {
       kind: "tool";
       name: string;
-      label: string; // human-readable summary, e.g. "Read 4 files"
+      label: string; // human-readable summary, e.g. "Ran SQL query", "Described malls"
       status: "running" | "done" | "error";
       input?: unknown;
       outputSummary?: string;
@@ -323,9 +342,9 @@ type ArtifactViewModel = {
 - User can open a global search modal, search chats/projects, and open a result via
   keyboard or click.
 - User can pin/unpin, rename, and delete sessions from the sidebar.
-- During a run, thinking tokens and tool calls stream live, then fold into a
-  `Worked for Ns` summary and compact tool-call rows before the final response streams.
-- User can expand a folded thinking block or tool-call row to see detail.
+- During a run, thinking tokens and tool calls stream live inside an open work block,
+  which collapses into a `Worked for Ns` summary when the final response starts.
+- User can expand a collapsed work block, and tool rows within it, to see detail.
 - Refreshing the browser mid-run reattaches to the live run: thinking, tool calls, and
   the answer keep streaming, with no duplicated or missing content, and stop still
   works.

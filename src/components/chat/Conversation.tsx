@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowDown, Copy, Pencil, RotateCcw } from "lucide-react";
+import { ArrowDown, Copy, Pencil, RotateCcw, X } from "lucide-react";
 import { api, type Id } from "@/lib/convexApi";
+import { cn } from "@/lib/utils";
 import type { RenderPart } from "@/lib/agent/stream-parts";
 import { AssistantTurn } from "./AssistantTurn";
 import { Composer, type ModelAlias } from "./Composer";
@@ -42,6 +43,13 @@ export function Conversation({
   const requestStop = useMutation(api.runs.requestStop);
 
   const [modelAlias, setModelAlias] = useState<ModelAlias>("analyst");
+  /** One message queued while a run is live, scoped to the thread it was queued
+   * for so it never dispatches into a different conversation. */
+  const [queued, setQueued] = useState<{
+    threadId: Id<"threads">;
+    text: string;
+    failed?: boolean;
+  } | null>(null);
   const now = useNow(2000);
 
   const running = latestRun?.status === "running";
@@ -73,7 +81,7 @@ export function Conversation({
     setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
   };
 
-  const handleSend = async (text: string) => {
+  const startRun = async (text: string) => {
     const res = await sendMessage({
       threadId: threadId ?? undefined,
       text,
@@ -83,6 +91,50 @@ export function Conversation({
     setAtBottom(true);
     if (!threadId) onThreadCreated(res.threadId);
   };
+
+  const enqueue = (threadId: Id<"threads">, text: string) =>
+    setQueued((q) => ({
+      threadId,
+      text:
+        q && q.threadId === threadId && !q.failed
+          ? `${q.text}\n\n${text}`
+          : text,
+    }));
+
+  const handleSend = async (text: string) => {
+    // The backend allows one live run per thread: queue instead of sending.
+    if (threadId && liveStreaming) {
+      enqueue(threadId, text);
+      return;
+    }
+    try {
+      await startRun(text);
+    } catch (err) {
+      // The run-liveness query can lag the server: a send that races a live
+      // run gets rejected there, so queue it instead of surfacing an error.
+      if (threadId && err instanceof Error && /already in progress/i.test(err.message)) {
+        enqueue(threadId, text);
+        return;
+      }
+      throw err;
+    }
+  };
+
+  // Dispatch the queued message once its thread has no live run. A stale run
+  // doesn't block: sendMessage reclaims it server-side.
+  const dispatchingQueuedRef = useRef(false);
+  useEffect(() => {
+    if (!queued || queued.failed || queued.threadId !== threadId) return;
+    if (liveStreaming || dispatchingQueuedRef.current) return;
+    dispatchingQueuedRef.current = true;
+    const q = queued;
+    setQueued(null);
+    startRun(q.text)
+      .catch(() => setQueued({ ...q, failed: true }))
+      .finally(() => {
+        dispatchingQueuedRef.current = false;
+      });
+  });
 
   const handleRetry = async () => {
     if (!threadId) return;
@@ -170,9 +222,46 @@ export function Conversation({
           }}
           className="absolute bottom-28 left-1/2 -translate-x-1/2 rounded-full border border-border bg-card p-2 shadow-md hover:bg-accent"
           title="Scroll to bottom"
+          aria-label="Scroll to bottom"
         >
           <ArrowDown className="size-4" />
         </button>
+      )}
+
+      {queued && queued.threadId === threadId && (
+        <div className="mx-auto w-full max-w-3xl px-4 pb-2">
+          <div
+            className={cn(
+              "flex items-center gap-2 rounded-xl border px-3 py-2 text-xs",
+              queued.failed
+                ? "border-destructive/50 text-destructive"
+                : "border-border bg-card text-muted-foreground",
+            )}
+          >
+            <span className="min-w-0 flex-1 truncate" title={queued.text}>
+              {queued.failed
+                ? "Couldn't send — "
+                : "Queued for after this run — "}
+              <span className="text-foreground/80">{queued.text}</span>
+            </span>
+            {queued.failed && (
+              <button
+                onClick={() => setQueued({ ...queued, failed: false })}
+                className="shrink-0 rounded-md border border-border px-2 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                Retry
+              </button>
+            )}
+            <button
+              onClick={() => setQueued(null)}
+              title="Discard"
+              aria-label="Discard queued message"
+              className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
       )}
 
       <Composer
@@ -182,6 +271,7 @@ export function Conversation({
         stopping={Boolean(latestRun?.stopRequested) && liveStreaming}
         modelAlias={modelAlias}
         onModelAliasChange={setModelAlias}
+        threadId={threadId}
       />
     </div>
   );
@@ -228,6 +318,7 @@ function UserBubble({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
               if (e.key === "Escape") setEditing(false);
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
             }}
@@ -321,6 +412,7 @@ function ActionButton({
   return (
     <button
       title={title}
+      aria-label={title}
       onClick={onClick}
       className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >

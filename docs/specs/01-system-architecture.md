@@ -24,8 +24,9 @@ flowchart LR
 
 - Claude-like chat shell: collapsible sidebar (pinned + recent sessions), conversation
   column, global search modal, and on-demand artifact panel.
-- Stream reasoning and tool calls live, then fold them into a `Worked for Ns` summary
-  before streaming the final response.
+- Stream reasoning, tool calls, and intermediate text live in a single open work
+  block per turn, which collapses into a `Worked for Ns` summary when the final
+  response starts streaming.
 - Reattach to in-flight runs after a refresh: rebuild the live view from persisted
   stream deltas and keep streaming from the Convex subscription.
 - Render chat, tool activity, results, charts, and analysis artifacts.
