@@ -163,6 +163,21 @@ export function reduceChunks(chunks: UIMessageChunk[]): ReducedMessage {
       case "reasoning-end": {
         const idx = reasoningIndex.get(chunk.id);
         if (idx != null) (parts[idx] as RenderReasoningPart).done = true;
+        reasoningIndex.delete(chunk.id);
+        break;
+      }
+      case "text-end": {
+        textIndex.delete(chunk.id);
+        break;
+      }
+      case "start-step": {
+        // Providers can reuse per-step part ids (e.g. kimi via openai-compatible
+        // emits "txt-0"/"reasoning-0" on every step). Retiring ids at step
+        // boundaries and part ends keeps a later step's text a separate part,
+        // in stream order after the step's tool calls — which is what lets the
+        // UI split trailing final text out of the work block.
+        textIndex.clear();
+        reasoningIndex.clear();
         break;
       }
       case "tool-input-start": {
