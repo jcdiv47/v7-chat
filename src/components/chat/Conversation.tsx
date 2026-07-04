@@ -141,6 +141,7 @@ export function Conversation({
                 <AssistantTurn
                   parts={reduced.parts}
                   streaming={liveStreaming && streamStatus !== "done"}
+                  workStartedAt={latestRun?.startedAt}
                   error={
                     stale
                       ? "This run stopped unexpectedly (the server went away). You can retry."

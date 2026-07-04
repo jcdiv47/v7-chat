@@ -1,84 +1,72 @@
 "use client";
 
+import { useRef } from "react";
 import { TriangleAlert } from "lucide-react";
-import type {
-  RenderPart,
-  RenderReasoningPart,
-  RenderTextPart,
-  RenderToolPart,
-} from "@/lib/agent/stream-parts";
+import type { RenderPart, RenderTextPart } from "@/lib/agent/stream-parts";
 import { Markdown } from "./Markdown";
-import { ThinkingBlock } from "./ThinkingBlock";
-import { ToolGroup } from "./ToolRow";
+import { WorkBlock } from "./WorkBlock";
 
-type Block =
-  | { type: "reasoning"; part: RenderReasoningPart }
-  | { type: "tools"; parts: RenderToolPart[] }
-  | { type: "text"; part: RenderTextPart };
-
-/** Group consecutive tool parts; keep reasoning and intermediate text separate,
- * preserving the original interleaving (docs/specs/05 → Interleaving). */
-function groupParts(parts: RenderPart[]): Block[] {
-  const blocks: Block[] = [];
-  for (const part of parts) {
-    if (part.kind === "tool") {
-      const last = blocks[blocks.length - 1];
-      if (last && last.type === "tools") last.parts.push(part);
-      else blocks.push({ type: "tools", parts: [part] });
-    } else if (part.kind === "reasoning") {
-      blocks.push({ type: "reasoning", part });
-    } else {
-      blocks.push({ type: "text", part });
-    }
-  }
-  return blocks;
+/** The trailing run of text parts is the final answer; everything before it
+ * (reasoning, tool calls, intermediate text) is "work" shown in the WorkBlock.
+ * While streaming, a text part is treated as final as soon as it starts — if a
+ * later tool call arrives it folds back into the work block on the next fold. */
+function splitParts(parts: RenderPart[]): {
+  work: RenderPart[];
+  finalText: string;
+  hasFinal: boolean;
+} {
+  let i = parts.length;
+  while (i > 0 && parts[i - 1].kind === "text") i--;
+  const work = parts.slice(0, i);
+  const finalText = parts
+    .slice(i)
+    .map((p) => (p as RenderTextPart).text)
+    .join("\n\n");
+  return { work, finalText, hasFinal: i < parts.length };
 }
 
 export function AssistantTurn({
   parts,
   streaming,
   durationMs,
+  workStartedAt,
   error,
 }: {
   parts: RenderPart[];
   streaming: boolean;
+  /** Persisted turn duration (completed messages). */
   durationMs?: number;
+  /** Run start time; used to compute the live duration when work finishes
+   * mid-stream, before the persisted durationMs exists. */
+  workStartedAt?: number;
   error?: string;
 }) {
-  const blocks = groupParts(parts);
-  const hasText = blocks.some((b) => b.type === "text" && b.part.text.trim());
+  const { work, finalText, hasFinal } = splitParts(parts);
+  const working = streaming && !hasFinal;
+
+  // Freeze the elapsed time the moment work completes, so the collapsed header
+  // shows a stable "Worked for Ns" while the final answer streams in.
+  const frozenMs = useRef<number | undefined>(undefined);
+  if (working) frozenMs.current = undefined;
+  else if (frozenMs.current == null && workStartedAt != null) {
+    frozenMs.current = Date.now() - workStartedAt;
+  }
+
+  const showWork = work.length > 0 || working;
 
   return (
     <div className="space-y-1">
-      {blocks.map((block, i) => {
-        if (block.type === "reasoning") {
-          const active = streaming && !block.part.done;
-          return (
-            <ThinkingBlock
-              key={`r${i}`}
-              text={block.part.text}
-              active={active}
-              durationMs={active ? undefined : durationMs}
-            />
-          );
-        }
-        if (block.type === "tools") {
-          return <ToolGroup key={`t${i}`} parts={block.parts} />;
-        }
-        return (
-          <div key={`x${i}`} className="pt-1">
-            <Markdown>{block.part.text}</Markdown>
-          </div>
-        );
-      })}
-
-      {streaming && blocks.length === 0 && (
-        <ThinkingBlock text="" active durationMs={undefined} />
+      {showWork && (
+        <WorkBlock
+          parts={work}
+          working={working}
+          durationMs={durationMs ?? frozenMs.current}
+        />
       )}
-      {streaming && !hasText && blocks.length > 0 && (
-        <div className="flex items-center gap-2 pt-1 text-sm text-muted-foreground">
-          <span className="inline-block size-1.5 animate-pulse rounded-full bg-current" />
-          Working…
+
+      {finalText.trim() && (
+        <div className="pt-1">
+          <Markdown>{finalText}</Markdown>
         </div>
       )}
 
