@@ -109,11 +109,7 @@ export function ChatApp({ threadId }: { threadId?: Id<"threads"> }) {
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <Conversation
-            threadId={threadId}
-            onThreadCreated={navigate}
-            onOpenArtifacts={setArtifactRunId}
-          />
+          <Conversation threadId={threadId} onThreadCreated={navigate} />
 
           {artifactRunId && (
             <>

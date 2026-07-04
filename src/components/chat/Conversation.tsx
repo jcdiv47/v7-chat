@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowDown, Copy, RotateCcw, PanelRightOpen } from "lucide-react";
+import { ArrowDown, Copy, RotateCcw } from "lucide-react";
 import { api, type Id } from "@/lib/convexApi";
 import type { RenderPart } from "@/lib/agent/stream-parts";
 import { AssistantTurn } from "./AssistantTurn";
@@ -27,11 +27,9 @@ function useNow(intervalMs: number): number {
 export function Conversation({
   threadId,
   onThreadCreated,
-  onOpenArtifacts,
 }: {
   threadId: Id<"threads"> | undefined;
   onThreadCreated: (id: Id<"threads">) => void;
-  onOpenArtifacts: (runId: Id<"runs">) => void;
 }) {
   const messages = useQuery(api.messages.list, threadId ? { threadId } : "skip");
   const latestRun = useQuery(
@@ -129,9 +127,6 @@ export function Conversation({
                   isLast={m._id === lastAssistantId}
                   canRetry={!running}
                   onRetry={handleRetry}
-                  onOpenArtifacts={
-                    m.runId ? () => onOpenArtifacts(m.runId as Id<"runs">) : undefined
-                  }
                 />
               ),
             )}
@@ -208,7 +203,6 @@ function AssistantMessage({
   isLast,
   canRetry,
   onRetry,
-  onOpenArtifacts,
 }: {
   parts: RenderPart[];
   durationMs?: number;
@@ -217,7 +211,6 @@ function AssistantMessage({
   isLast: boolean;
   canRetry: boolean;
   onRetry: () => void;
-  onOpenArtifacts?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -244,11 +237,6 @@ function AssistantMessage({
         {isLast && canRetry && (
           <ActionButton title="Retry" onClick={onRetry}>
             <RotateCcw className="size-3.5" />
-          </ActionButton>
-        )}
-        {onOpenArtifacts && (
-          <ActionButton title="Open artifacts" onClick={onOpenArtifacts}>
-            <PanelRightOpen className="size-3.5" />
           </ActionButton>
         )}
       </div>
