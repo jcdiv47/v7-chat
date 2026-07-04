@@ -5,11 +5,14 @@
  * callbacks they pass. See docs/specs/02-agent-runtime.md.
  */
 import {
+  InvalidToolInputError,
+  parsePartialJson,
   stepCountIs,
   ToolLoopAgent,
   toUIMessageStream,
   type LanguageModel,
   type ModelMessage,
+  type ToolCallRepairFunction,
   type ToolSet,
   type UIMessageChunk,
 } from "ai";
@@ -60,6 +63,25 @@ function isAbortError(err: unknown): boolean {
   );
 }
 
+/**
+ * Some models (e.g. kimi-k2.6) occasionally emit tool-call JSON that is cut off
+ * mid-string, which fails `JSON.parse` and would abort the whole run. Salvage
+ * it with `parsePartialJson`, which closes unterminated strings/brackets. Only
+ * `repaired-parse` helps here: a `successful-parse` means the JSON was fine and
+ * the input failed schema validation instead, which re-stringifying can't fix.
+ */
+const repairTruncatedToolCall: ToolCallRepairFunction<ToolSet> = async ({
+  toolCall,
+  error,
+}) => {
+  if (!InvalidToolInputError.isInstance(error)) return null;
+  const { value, state } = await parsePartialJson(toolCall.input);
+  if (state !== "repaired-parse" || value === null || typeof value !== "object") {
+    return null;
+  }
+  return { ...toolCall, input: JSON.stringify(value) };
+};
+
 async function settle<T>(p: PromiseLike<T>): Promise<T | undefined> {
   try {
     return await p;
@@ -90,6 +112,7 @@ export async function runAnalysisAgent(
     temperature: opts.temperature,
     maxOutputTokens: opts.maxOutputTokens,
     stopWhen: stepCountIs(opts.maxSteps),
+    experimental_repairToolCall: repairTruncatedToolCall,
     runtimeContext: opts.runtimeContext as Record<string, unknown>,
     prepareStep: async ({ stepNumber }) => {
       await opts.onEvent?.({
