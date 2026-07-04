@@ -9,7 +9,7 @@ This directory captures the product and technical specs for the V1 agentic busin
 ## Decisions Already Made
 
 - Convex is the application backend and state/control plane.
-- Streaming survives browser refresh: the chat stream endpoint is a Convex HTTP action running the agent loop, with `@convex-dev/persistent-text-streaming` persisting JSONL-encoded UI message parts as the source of truth for live output.
+- Streaming survives browser refresh and disconnects: the agent loop runs in a scheduled Convex action, with `@convex-dev/persistent-text-streaming` persisting JSONL-encoded UI message parts as the source of truth that clients render via subscription.
 - V1 runs as a single anonymous user; Clerk authentication is a V2 item.
 - Agent skills are bundled into the Convex deployment at build time; the TUI reads the same skill files from disk.
 - Messages are stored as AI SDK UI messages with full parts fidelity; prior-turn history is compacted before being sent to the model.

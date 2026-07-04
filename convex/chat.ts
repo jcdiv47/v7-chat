@@ -8,6 +8,7 @@ import {
   HEARTBEAT_STALE_MS,
 } from "./lib/constants";
 import { persistentTextStreaming } from "./lib/streaming";
+import { finalizeInterruptedRun } from "./runs";
 import { bundledSkillSource } from "../src/lib/skills/loader";
 
 const modelAliasValidator = v.union(
@@ -20,9 +21,9 @@ const modelAliasValidator = v.union(
 /**
  * Enforce one live run per thread. A run only blocks a new one while it is
  * genuinely alive (fresh heartbeat). A running-but-stale run means the server
- * died mid-run: reclaim it (mark failed) so the user can start/retry
- * immediately, matching the client's staleness check instead of waiting for the
- * cron sweeper (see runs.sweepStaleRuns).
+ * died mid-run: reclaim it (finalize as failed, keeping any partial output as
+ * a visible message) so the user can start/retry immediately, matching the
+ * client's staleness check instead of waiting for the cron sweeper.
  */
 async function ensureNoLiveRun(ctx: MutationCtx, latestRun: Doc<"runs"> | null) {
   if (!latestRun || latestRun.status !== "running") return;
@@ -34,12 +35,11 @@ async function ensureNoLiveRun(ctx: MutationCtx, latestRun: Doc<"runs"> | null) 
       "A run is already in progress for this thread. Stop it first.",
     );
   }
-  await ctx.db.patch(latestRun._id, {
-    status: "failed",
-    error: "Run heartbeat went stale; the server likely died mid-run.",
-    finishedAt: Date.now(),
-    stopRequested: false,
-  });
+  await finalizeInterruptedRun(
+    ctx,
+    latestRun,
+    "Run heartbeat went stale; the server likely died mid-run.",
+  );
 }
 
 function deriveTitle(text: string): string {
@@ -132,6 +132,7 @@ export const sendMessage = mutation({
       type: "run.started",
       metadata: { modelAlias: alias, userMessageId },
     });
+    await ctx.scheduler.runAfter(0, internal.agent.drive.drive, { streamId });
 
     return { threadId: tid, runId, streamId, userMessageId };
   },
@@ -237,6 +238,7 @@ export const editAndRerun = mutation({
       type: "run.started",
       metadata: { modelAlias: alias, edit: true, userMessageId: messageId },
     });
+    await ctx.scheduler.runAfter(0, internal.agent.drive.drive, { streamId });
 
     return { threadId, runId, streamId };
   },
@@ -298,6 +300,7 @@ export const retryLast = mutation({
       type: "run.started",
       metadata: { modelAlias: alias, retry: true },
     });
+    await ctx.scheduler.runAfter(0, internal.agent.drive.drive, { streamId });
 
     return { threadId, runId, streamId };
   },

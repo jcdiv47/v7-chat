@@ -234,3 +234,22 @@ export function toolLabel(part: RenderToolPart): string {
       return part.name;
   }
 }
+
+/** One-line tool summaries for history compaction (name, SQL, row count). */
+export function buildToolLines(parts: RenderPart[]): string[] {
+  const lines: string[] = [];
+  for (const part of parts) {
+    if (part.kind !== "tool") continue;
+    if (part.name === "runSql") {
+      const input = (part.input ?? {}) as { sql?: string };
+      const output = (part.output ?? {}) as { rowCount?: number };
+      const sql = (input.sql ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+      const rows =
+        typeof output.rowCount === "number" ? ` (rows: ${output.rowCount})` : "";
+      lines.push(`runSql: ${sql}${rows}`);
+    } else {
+      lines.push(toolLabel(part));
+    }
+  }
+  return lines;
+}

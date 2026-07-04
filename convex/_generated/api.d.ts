@@ -9,13 +9,13 @@
  */
 
 import type * as agent_demo from "../agent/demo.js";
+import type * as agent_drive from "../agent/drive.js";
 import type * as agent_loop from "../agent/loop.js";
 import type * as agent_webDeps from "../agent/webDeps.js";
 import type * as artifacts from "../artifacts.js";
 import type * as chat from "../chat.js";
 import type * as crons from "../crons.js";
 import type * as events from "../events.js";
-import type * as http from "../http.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_streaming from "../lib/streaming.js";
 import type * as messages from "../messages.js";
@@ -32,13 +32,13 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "agent/demo": typeof agent_demo;
+  "agent/drive": typeof agent_drive;
   "agent/loop": typeof agent_loop;
   "agent/webDeps": typeof agent_webDeps;
   artifacts: typeof artifacts;
   chat: typeof chat;
   crons: typeof crons;
   events: typeof events;
-  http: typeof http;
   "lib/constants": typeof lib_constants;
   "lib/streaming": typeof lib_streaming;
   messages: typeof messages;

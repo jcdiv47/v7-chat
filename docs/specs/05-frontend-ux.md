@@ -247,13 +247,13 @@ Analysis outputs are first-class but live inside the chat-first design.
 
 ## AI SDK UI Integration
 
-Use AI SDK UI message parts as the rendering contract. The Convex HTTP action streams
-agent UI messages from the `ToolLoopAgent` — reasoning, tool, and text parts encoded as
-JSON lines — through `@convex-dev/persistent-text-streaming`. The client wraps the
-component's `useStream` hook: the initiating tab consumes the HTTP stream
-(`driven: true`), while a refreshed or second tab reads the persisted body reactively;
-the wrapper decodes JSONL back into parts and feeds the same renderer, so the live →
-folded lifecycle works identically in both cases.
+Use AI SDK UI message parts as the rendering contract. A scheduled Convex action
+streams agent UI messages from the `ToolLoopAgent` — reasoning, tool, and text parts
+encoded as JSON lines — into `@convex-dev/persistent-text-streaming`. The client wraps
+the component's `useStream` hook in always-undriven mode: every tab (initiating,
+refreshed, or second) reads the persisted body reactively; the wrapper decodes JSONL
+back into parts and feeds the same renderer, so the live → folded lifecycle works
+identically everywhere.
 
 ## shadcn/ui Components
 

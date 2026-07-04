@@ -6,13 +6,13 @@ Use AI SDK V7 `ToolLoopAgent` for V1 interactive analysis. It provides a reusabl
 
 Use `WorkflowAgent` only when V1 needs durable, resumable, or approval-based work. Otherwise keep V1 simple.
 
-The interactive web loop runs inside a Convex HTTP action, detached from the client connection: a browser refresh or disconnect must not abort the run. Only an explicit stop cancels it. See `01-system-architecture.md` → Resumable Streaming.
+The interactive web loop runs inside an internal Convex action scheduled by the run-creating mutation, fully detached from any client connection: a browser refresh, disconnect, or immediate close cannot abort or orphan the run. Only an explicit stop cancels it. See `01-system-architecture.md` → Resumable Streaming.
 
 ## Execution Environment
 
-The HTTP action uses Convex's V8 runtime:
+The driver action uses Convex's V8 runtime:
 
-- OpenRouter calls are fetch-based and run in the HTTP action directly.
+- OpenRouter calls are fetch-based and run in the driver action directly.
 - Node-only work — the Postgres client in particular — lives in `"use node"` internal actions that tools invoke via `ctx.runAction`.
 - The TUI runs the same agent definition in a plain Node process with direct tool implementations; only the tool wiring differs between the two entrypoints.
 

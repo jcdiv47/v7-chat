@@ -11,11 +11,6 @@ import { Composer, type ModelAlias } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { useRunStream } from "./useRunStream";
 
-/** Stream IDs this browser tab initiated — survives client-side navigation, so a
- * new chat's first run is driven after we route to /c/[threadId]. Cleared by a
- * full refresh, which is exactly when a tab should reattach undriven. */
-const initiatedStreams = new Set<string>();
-
 function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -60,10 +55,7 @@ export function Conversation({
   const liveStreaming = Boolean(running && !stale);
 
   const activeStreamId = running ? latestRun?.streamId : undefined;
-  const driven = Boolean(
-    activeStreamId && !stale && initiatedStreams.has(activeStreamId),
-  );
-  const { reduced, streamStatus } = useRunStream(activeStreamId, driven);
+  const { reduced, streamStatus } = useRunStream(activeStreamId);
 
   // Auto-scroll handling.
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -87,7 +79,6 @@ export function Conversation({
       text,
       modelAlias,
     });
-    initiatedStreams.add(res.streamId);
     setAtBottom(true);
     if (!threadId) onThreadCreated(res.threadId);
   };
@@ -138,14 +129,12 @@ export function Conversation({
 
   const handleRetry = async () => {
     if (!threadId) return;
-    const res = await retryLast({ threadId, modelAlias });
-    initiatedStreams.add(res.streamId);
+    await retryLast({ threadId, modelAlias });
     setAtBottom(true);
   };
 
   const handleEdit = async (messageId: Id<"messages">, text: string) => {
-    const res = await editAndRerun({ messageId, text, modelAlias });
-    initiatedStreams.add(res.streamId);
+    await editAndRerun({ messageId, text, modelAlias });
     setAtBottom(true);
   };
 

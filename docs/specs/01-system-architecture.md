@@ -7,12 +7,13 @@ V1 uses Convex as the app backend and state store, a separate intermediate Postg
 ```mermaid
 flowchart LR
   U["User"] --> FE["Next.js frontend\nAI SDK UI + Tailwind + shadcn/ui"]
-  FE --> HA["Convex HTTP action\nchat stream endpoint"]
-  HA --> AG["AI SDK V7 ToolLoopAgent"]
+  FE --> MU["Convex mutation\ncreate run + schedule driver"]
+  MU --> DA["Scheduled Convex action\nagent loop driver"]
+  DA --> AG["AI SDK V7 ToolLoopAgent"]
   AG --> OR["OpenRouter model gateway"]
   AG --> QT["Postgres query tool\n('use node' internal action)"]
   QT --> IPG["Intermediate Postgres\ncities, malls, stores"]
-  HA --> CVX["Convex tables\nthreads, runs, events, artifacts,\nstream chunks"]
+  DA --> CVX["Convex tables\nthreads, runs, events, artifacts,\nstream chunks"]
   FE --> CVX
   RAW["Raw business Postgres"] --> ETL["External materialization pipeline"]
   ETL --> IPG
@@ -34,23 +35,23 @@ flowchart LR
 - Use Tailwind and shadcn/ui for layout and controls.
 - Keep SQL visible and copyable.
 
-### Chat Stream Endpoint (Convex HTTP Action)
+### Run Driver (Scheduled Convex Action)
 
-The chat stream is owned by a Convex HTTP action, not a Next.js API route, so the run
-survives client disconnects by construction. Next.js only serves the frontend.
+The agent loop runs in an internal Convex action scheduled by the mutation that
+creates the run (`ctx.scheduler.runAfter(0, …)`), so execution starts unconditionally
+and never depends on any client connection. Next.js only serves the frontend; there is
+no chat HTTP endpoint.
 
 - Execute the `ToolLoopAgent` for the run created by the send-message mutation.
 - Pass runtime context: user, org, thread, run, model alias, active skill set.
-- Pipe the agent's UI message stream through `@convex-dev/persistent-text-streaming`,
-  appending each part (reasoning delta, tool state change, text delta) as one JSON
-  line — persisted in chunks and simultaneously streamed over the HTTP response.
+- Append the agent's UI message stream to `@convex-dev/persistent-text-streaming`,
+  one JSON line per part (reasoning delta, tool state change, text delta) — clients
+  read it through the reactive `getStreamBody` subscription.
 - Bridge agent events into Convex logs.
-- Call Postgres tools through `"use node"` internal actions, since HTTP actions run in
+- Call Postgres tools through `"use node"` internal actions, since the driver runs in
   the V8 runtime.
 - Never tie run completion to the client connection; only an explicit stop cancels a
   run.
-- Handle CORS for the frontend origin: the endpoint lives on the Convex domain
-  (`*.convex.site`), not the Next.js origin.
 
 ### Convex
 
@@ -85,15 +86,15 @@ survives client disconnects by construction. Next.js only serves the frontend.
 ### Interactive Chat Flow
 
 1. User sends a message from the frontend.
-2. A Convex mutation stores the message, creates the run, and creates a persistent
-   stream; the frontend then calls the chat HTTP action with the stream ID.
-3. The HTTP action executes the `ToolLoopAgent`.
+2. A Convex mutation stores the message, creates the run and its persistent stream,
+   and schedules the driver action with the stream ID.
+3. The scheduled action executes the `ToolLoopAgent`.
 4. Agent loads relevant skills if needed.
 5. Agent calls schema/query tools; Postgres tools run as `"use node"` internal actions.
 6. Tools execute against intermediate Postgres.
 7. Each streamed part (reasoning, tool state, text) is appended to the persistent
-   stream as a JSON line — persisted in Convex and streamed over the HTTP response to
-   the initiating tab.
+   stream as a JSON line; every open tab renders it through the reactive
+   `getStreamBody` subscription.
 8. If the user refreshes or reopens the thread mid-run, the client sees the run is
    still active, reads the persisted stream body from a Convex query, and continues
    live from the subscription.
@@ -118,17 +119,18 @@ Design rules:
 1. **Convex is the source of truth for live output.** As the agent streams, the server
    persists every UI message stream part (reasoning deltas, tool-call state changes,
    text deltas) to Convex as an ordered, append-only stream tied to the run.
-2. **The run does not depend on the client connection.** The agent loop keeps executing
-   to completion when the browser disconnects. Execution lives in a Convex HTTP action,
-   which keeps running when the client closes the response stream; it must never be
-   aborted by the client disconnecting. Only an explicit stop cancels a run.
+2. **The run does not depend on the client connection.** Execution lives in an
+   internal action scheduled by the run-creating mutation, so it starts and completes
+   regardless of what any browser does — including closing immediately after sending.
+   Only an explicit stop cancels a run.
 3. **Clients render from Convex subscriptions.** A refreshed client loads the thread,
    sees a run with status `running`, replays the persisted stream to rebuild the
    in-progress message, and keeps receiving new parts reactively until the run
    finishes.
-4. **The direct HTTP stream is an optimization, not the contract.** The initiating tab
-   may consume the low-latency HTTP stream, but correctness — including stop, errors,
-   and the final answer — is defined by what lands in Convex.
+4. **The subscription is the only transport.** There is no per-client HTTP stream;
+   every tab — initiating, refreshed, or second — renders from the same persisted
+   stream, so correctness — including stop, errors, and the final answer — is defined
+   by what lands in Convex.
 5. **Streams are transient.** Once the run completes and the final assistant message is
    stored, the stream chunks can be compacted or deleted.
 
@@ -136,20 +138,19 @@ Design rules:
 
 V1 builds directly on `@convex-dev/persistent-text-streaming`:
 
-- A mutation creates the run and the persistent stream; the chat HTTP action runs the
-  `ToolLoopAgent` and appends to the stream, so the run survives disconnects by
-  construction.
+- A mutation creates the run and the persistent stream, then schedules the driver
+  action; the driver runs the `ToolLoopAgent` and appends to the stream via the
+  component's chunk mutations, so the run survives disconnects by construction.
 - The component streams text, so UI message parts are encoded as JSONL: each part is
-  appended as one JSON-serialized line via the chunk appender. The client decodes lines
-  back into parts and feeds the normal parts renderer. Ordering is preserved because
-  the stream is a single append-only body.
-- The initiating tab consumes the HTTP stream (`driven: true`); refreshed or additional
-  tabs read the persisted body reactively via `getStreamBody`. A thin wrapper around
-  the component's `useStream` hook does the JSONL decode and the driven/undriven
-  switch.
-- Postgres tools cannot run in the HTTP action's V8 runtime; they call `"use node"`
-  internal actions via `ctx.runAction`. This also keeps database credentials out of the
-  streaming endpoint.
+  appended as one JSON-serialized line. The client decodes lines back into parts and
+  feeds the normal parts renderer. Ordering is preserved because the stream is a
+  single append-only body.
+- All tabs read the persisted body reactively via `getStreamBody` (the component's
+  `driven` HTTP mode is unused). A thin wrapper around its `useStream` hook does the
+  JSONL decode.
+- Postgres tools cannot run in the driver's V8 runtime; they call `"use node"`
+  internal actions via `ctx.runAction`. This also keeps database credentials out of
+  the streaming path.
 - Stop is a side channel: the loop checks run status at each step boundary and aborts
   in-flight model calls where possible; the component has no built-in cancellation.
   Stop latency of up to one step is accepted for V1.
@@ -202,8 +203,8 @@ V1 has no authentication: the app runs as a single anonymous user.
 - No login, no user accounts, no org scoping in V1.
 - Keep `userId` fields in the schema now (a constant placeholder value in V1) so Clerk
   can land in V2 without a data migration.
-- Convex functions and the chat HTTP action do not authenticate callers in V1; do not
-  expose the deployment beyond the intended users.
+- Convex functions do not authenticate callers in V1; do not expose the deployment
+  beyond the intended users.
 - V2 adds Clerk: identity on threads/runs/artifacts, per-user pinned sessions, and real
   authorization checks in Convex functions.
 
@@ -225,8 +226,8 @@ V1 has no authentication: the app runs as a single anonymous user.
 | SQL error | Return concise DB error, save failed query for debugging |
 | Empty result | Explain that the query returned no rows and suggest follow-up |
 | Unknown schema | Ask the schema tool first, then continue or fail clearly |
-| Client disconnect or refresh | Run continues in the HTTP action; client reattaches and replays the persisted stream |
-| Server dies mid-run | Heartbeat goes stale; sweeper marks the run failed, partial output kept, retry allowed |
+| Client disconnect or refresh | Run continues in the scheduled action; client reattaches and replays the persisted stream |
+| Server dies mid-run | Heartbeat goes stale; sweeper (or the next send) finalizes the run as failed with a visible assistant message holding any partial output; retry allowed |
 
 ## Architecture Risks
 

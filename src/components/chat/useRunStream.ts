@@ -24,20 +24,19 @@ export type RunStream = {
 };
 
 /**
- * Subscribe to a run's persisted stream. The initiating tab drives it
- * (`driven: true`, POSTs to the chat HTTP action); refreshed / second tabs read
- * the persisted body reactively. Either way, JSONL is decoded and folded into
- * render parts identically. See docs/specs/05 → AI SDK UI Integration.
+ * Subscribe to a run's persisted stream. Runs are driven server-side by a
+ * scheduled action (see convex/agent/drive.ts), so every tab — initiating,
+ * refreshed, or second — reads the persisted body reactively (never `driven`).
+ * JSONL is decoded and folded into render parts identically everywhere.
+ * See docs/specs/05 → AI SDK UI Integration.
  */
-export function useRunStream(
-  streamId: string | undefined,
-  driven: boolean,
-): RunStream {
+export function useRunStream(streamId: string | undefined): RunStream {
+  // `useStream` requires a stream URL for its driven mode; we never drive.
   const streamUrl = useMemo(() => new URL(`${siteUrl()}/chat`), []);
   const body = useStream(
     api.stream.getBody,
     streamUrl,
-    driven,
+    false,
     streamId as StreamId | undefined,
   );
   const reduced = useMemo(

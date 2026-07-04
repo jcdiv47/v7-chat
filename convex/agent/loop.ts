@@ -1,17 +1,15 @@
 /**
- * The chat agent loop, executed inside the persistent-text-streaming writer of
- * the chat HTTP action (V8 runtime). It runs the ToolLoopAgent (or the offline
- * demo), appends each UI message chunk as JSONL to the stream, stamps a
- * heartbeat + checks stop at each step boundary, and finalizes the run by
- * storing the assistant message with full parts fidelity. See docs/specs/01, 02.
+ * The chat agent loop, executed in a scheduled internal action (V8 runtime) so
+ * a run never depends on any client connection. It runs the ToolLoopAgent (or
+ * the offline demo), appends each UI message chunk as JSONL to the persistent
+ * stream (which clients read via the reactive `stream.getBody` subscription),
+ * stamps a heartbeat + checks stop at each step boundary, and finalizes the run
+ * by storing the assistant message with full parts fidelity. See docs/specs/01, 02.
  */
-import type { StreamId } from "@convex-dev/persistent-text-streaming";
 import type { UIMessageChunk } from "ai";
-import type { GenericActionCtx, GenericDataModel } from "convex/server";
-import { internal } from "../_generated/api";
+import { components, internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import { MAX_STEPS } from "../lib/constants";
-import { persistentTextStreaming } from "../lib/streaming";
 import { createWebDeps, newRunStats } from "./webDeps";
 import { runDemoAnalysis } from "./demo";
 import { buildModelMessages, type CompactTurn } from "../../src/lib/agent/history";
@@ -19,10 +17,9 @@ import { buildInstructions } from "../../src/lib/agent/instructions";
 import { createAgentTools } from "../../src/lib/agent/tools";
 import { runAnalysisAgent, type RunAgentResult } from "../../src/lib/agent/run";
 import {
+  buildToolLines,
   reduceChunks,
-  toolLabel,
   trimChunkForStream,
-  type RenderPart,
   type RenderTextPart,
 } from "../../src/lib/agent/stream-parts";
 import { bundledSkillSource } from "../../src/lib/skills/loader";
@@ -34,26 +31,44 @@ import {
 } from "../../src/lib/models/registry";
 import type { AnalysisRuntimeContext, ModelAlias } from "../../src/lib/agent/types";
 
-/** Entry point from the HTTP action. Wraps the agent in the persistent stream. */
-export async function runChatStream(
+/** Flush the pending buffer to the stream when a piece contains sentence-ish
+ * punctuation — the same batching the component's own HTTP writer uses, which
+ * sets the chunk granularity clients see through the subscription. */
+const hasDelimiter = (text: string) =>
+  text.includes(".") || text.includes("!") || text.includes("?");
+
+/**
+ * Entry point from the scheduled drive action. Replicates the
+ * persistent-text-streaming writer without an HTTP request: append chunks via
+ * the component's public mutations (pending → streaming → done), and mark the
+ * stream errored if the agent throws.
+ */
+export async function runAgentDetached(
   ctx: ActionCtx,
-  request: Request,
   streamId: string,
-): Promise<Response> {
-  const response = await persistentTextStreaming.stream(
-    // The component types its ctx as the generic data model; capture the typed
-    // outer ctx in the writer closure instead of the generic one it passes back.
-    ctx as unknown as GenericActionCtx<GenericDataModel>,
-    request,
-    streamId as StreamId,
-    async (_streamCtx, _req, _sid, append) => {
-      await runAgentForStream(ctx, streamId, append);
-    },
-  );
-  // The endpoint lives on *.convex.site; allow the Next.js origin to read it.
-  response.headers.set("Access-Control-Allow-Origin", "*");
-  response.headers.set("Vary", "Origin");
-  return response;
+): Promise<void> {
+  const lib = components.persistentTextStreaming.lib;
+  const status = await ctx.runQuery(lib.getStreamStatus, { streamId });
+  if (status !== "pending") return; // already driven (duplicate schedule)
+
+  let pending = "";
+  const append = async (text: string) => {
+    pending += text;
+    if (hasDelimiter(text)) {
+      await ctx.runMutation(lib.addChunk, { streamId, text: pending, final: false });
+      pending = "";
+    }
+  };
+
+  try {
+    await runAgentForStream(ctx, streamId, append);
+    await ctx.runMutation(lib.addChunk, { streamId, text: pending, final: true });
+  } catch (err) {
+    await ctx
+      .runMutation(lib.setStreamStatus, { streamId, status: "error" })
+      .catch(() => undefined);
+    throw err;
+  }
 }
 
 async function runAgentForStream(
@@ -203,23 +218,4 @@ async function runAgentForStream(
       error: errorText,
     },
   });
-}
-
-/** One-line tool summaries for history compaction (name, SQL, row count). */
-function buildToolLines(parts: RenderPart[]): string[] {
-  const lines: string[] = [];
-  for (const part of parts) {
-    if (part.kind !== "tool") continue;
-    if (part.name === "runSql") {
-      const input = (part.input ?? {}) as { sql?: string };
-      const output = (part.output ?? {}) as { rowCount?: number };
-      const sql = (input.sql ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
-      const rows =
-        typeof output.rowCount === "number" ? ` (rows: ${output.rowCount})` : "";
-      lines.push(`runSql: ${sql}${rows}`);
-    } else {
-      lines.push(toolLabel(part));
-    }
-  }
-  return lines;
 }
