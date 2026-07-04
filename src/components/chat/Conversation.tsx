@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowDown, Copy, RotateCcw } from "lucide-react";
+import { ArrowDown, Copy, Pencil, RotateCcw } from "lucide-react";
 import { api, type Id } from "@/lib/convexApi";
 import type { RenderPart } from "@/lib/agent/stream-parts";
 import { AssistantTurn } from "./AssistantTurn";
@@ -38,6 +38,7 @@ export function Conversation({
   );
   const sendMessage = useMutation(api.chat.sendMessage);
   const retryLast = useMutation(api.chat.retryLast);
+  const editAndRerun = useMutation(api.chat.editAndRerun);
   const requestStop = useMutation(api.runs.requestStop);
 
   const [modelAlias, setModelAlias] = useState<ModelAlias>("analyst");
@@ -90,18 +91,17 @@ export function Conversation({
     setAtBottom(true);
   };
 
+  const handleEdit = async (messageId: Id<"messages">, text: string) => {
+    const res = await editAndRerun({ messageId, text, modelAlias });
+    initiatedStreams.add(res.streamId);
+    setAtBottom(true);
+  };
+
   const handleStop = () => {
     if (latestRun) requestStop({ runId: latestRun._id });
   };
 
   const isEmpty = threadId == null || (messages && messages.length === 0);
-  const lastAssistantId = useMemo(() => {
-    if (!messages) return null;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "assistant") return messages[i]._id;
-    }
-    return null;
-  }, [messages]);
 
   return (
     <div className="relative flex h-full flex-1 flex-col overflow-hidden">
@@ -116,7 +116,12 @@ export function Conversation({
           <div className="mx-auto w-full max-w-3xl px-4 py-6">
             {messages?.map((m) =>
               m.role === "user" ? (
-                <UserBubble key={m._id} text={m.text} />
+                <UserBubble
+                  key={m._id}
+                  text={m.text}
+                  canEdit={!running}
+                  onEdit={(text) => handleEdit(m._id, text)}
+                />
               ) : (
                 <AssistantMessage
                   key={m._id}
@@ -124,9 +129,6 @@ export function Conversation({
                   durationMs={m.durationMs}
                   failed={m.status === "failed"}
                   text={m.text}
-                  isLast={m._id === lastAssistantId}
-                  canRetry={!running}
-                  onRetry={handleRetry}
                 />
               ),
             )}
@@ -185,33 +187,7 @@ export function Conversation({
   );
 }
 
-function UserBubble({ text }: { text: string }) {
-  return (
-    <div className="mb-5 flex justify-end">
-      <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-secondary px-4 py-2.5 text-[15px] text-secondary-foreground">
-        {text}
-      </div>
-    </div>
-  );
-}
-
-function AssistantMessage({
-  parts,
-  durationMs,
-  failed,
-  text,
-  isLast,
-  canRetry,
-  onRetry,
-}: {
-  parts: RenderPart[];
-  durationMs?: number;
-  failed?: boolean;
-  text: string;
-  isLast: boolean;
-  canRetry: boolean;
-  onRetry: () => void;
-}) {
+function useCopy(text: string) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -222,6 +198,100 @@ function AssistantMessage({
       /* no clipboard */
     }
   };
+  return { copied, copy };
+}
+
+function UserBubble({
+  text,
+  canEdit,
+  onEdit,
+}: {
+  text: string;
+  canEdit: boolean;
+  onEdit: (text: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(text);
+  const { copied, copy } = useCopy(text);
+
+  const submit = () => {
+    if (!draft.trim()) return;
+    setEditing(false);
+    onEdit(draft);
+  };
+
+  if (editing) {
+    return (
+      <div className="mb-5 flex justify-end">
+        <div className="w-full max-w-[85%] rounded-2xl border border-border bg-secondary px-3 py-2">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setEditing(false);
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) submit();
+            }}
+            autoFocus
+            rows={Math.min(8, Math.max(2, draft.split("\n").length))}
+            className="w-full resize-none bg-transparent px-1 py-1 text-[15px] text-secondary-foreground outline-none"
+          />
+          <div className="flex items-center justify-end gap-1.5 pb-0.5">
+            <button
+              onClick={() => setEditing(false)}
+              className="rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={submit}
+              disabled={!draft.trim()}
+              className="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group mb-5 flex flex-col items-end">
+      <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-secondary px-4 py-2.5 text-[15px] text-secondary-foreground">
+        {text}
+      </div>
+      <div className="mt-1.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <ActionButton title={copied ? "Copied" : "Copy"} onClick={copy}>
+          <Copy className="size-3.5" />
+        </ActionButton>
+        {canEdit && (
+          <ActionButton
+            title="Edit and rerun from here"
+            onClick={() => {
+              setDraft(text);
+              setEditing(true);
+            }}
+          >
+            <Pencil className="size-3.5" />
+          </ActionButton>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssistantMessage({
+  parts,
+  durationMs,
+  failed,
+  text,
+}: {
+  parts: RenderPart[];
+  durationMs?: number;
+  failed?: boolean;
+  text: string;
+}) {
+  const { copied, copy } = useCopy(text);
   return (
     <div className="group mb-5">
       <AssistantTurn
@@ -234,11 +304,6 @@ function AssistantMessage({
         <ActionButton title={copied ? "Copied" : "Copy"} onClick={copy}>
           <Copy className="size-3.5" />
         </ActionButton>
-        {isLast && canRetry && (
-          <ActionButton title="Retry" onClick={onRetry}>
-            <RotateCcw className="size-3.5" />
-          </ActionButton>
-        )}
       </div>
     </div>
   );
