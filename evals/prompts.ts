@@ -20,31 +20,32 @@ export type EvalPrompt = {
 export const EVAL_PROMPTS: EvalPrompt[] = [
   // Counting
   { prompt: "How many cities are represented?", category: "counting", expect: "A single count (6) grounded in a query." },
-  { prompt: "How many malls are in each city?", category: "counting", expect: "One row per city with mall_count; uses a left join." },
+  { prompt: "How many malls are in each city?", category: "counting", expect: "One row per city with mall_count; left join on city name (malls.city = cities.city)." },
   { prompt: "How many stores are in each mall?", category: "counting", expect: "One row per mall with store_count." },
+  { prompt: "上海有多少家星巴克门店？", category: "counting", expect: "stores → malls join filtered on 上海市 and brand 星巴克/STARBUCKS (2 in the seed); states the status filter used." },
 
   // Ranking
-  { prompt: "Which city has the most malls?", category: "ranking", expect: "Austin/Denver/SF/Seattle tie at 3; states the tie." },
-  { prompt: "Which mall has the most stores?", category: "ranking", expect: "Ranks malls by store count, returns the top one." },
+  { prompt: "Which city has the most malls?", category: "ranking", expect: "上海市 and 北京市 tie at 3; states the tie." },
+  { prompt: "Which mall has the most stores?", category: "ranking", expect: "Ranks malls by store count; 上海大悦城 (6) in the seed." },
   { prompt: "Show the top 10 malls by store count.", category: "ranking", expect: "Ordered list limited to 10." },
   { prompt: "Compare store counts across cities.", category: "ranking", expect: "City-level store counts, joined through malls." },
 
   // Join correctness
-  { prompt: "List malls with their city.", category: "joins", expect: "malls joined to cities; mall + city columns." },
-  { prompt: "List stores with their mall and city.", category: "joins", expect: "stores → malls → cities two-hop join." },
+  { prompt: "List malls with their city.", category: "joins", expect: "malls joined to cities by name; mall + city columns." },
+  { prompt: "List stores with their mall and city.", category: "joins", expect: "stores → malls → cities two-hop join (mall_id, then city name)." },
 
   // Missing data
-  { prompt: "Are there malls with no stores?", category: "missing", expect: "Left join + null check; finds Union Station Market." },
-  { prompt: "Are there cities with no malls?", category: "missing", expect: "Left join + null check; finds Boise." },
+  { prompt: "Are there malls with no stores?", category: "missing", expect: "Left join + null check; finds 北京新集市广场." },
+  { prompt: "Are there cities with no malls?", category: "missing", expect: "Left join + null check; finds 三沙市." },
 
   // Ambiguity
-  { prompt: "Which locations are strongest?", category: "ambiguity", expect: "Notes ambiguity; answers with store count as an explicit proxy." },
-  { prompt: "What is the best mall?", category: "ambiguity", expect: "Notes there is no performance metric; uses store count as a proxy or asks to clarify." },
+  { prompt: "Which locations are strongest?", category: "ambiguity", expect: "Notes ambiguity; answers with store count / area / rank as explicit proxies." },
+  { prompt: "What is the best mall?", category: "ambiguity", expect: "Notes there is no revenue metric; uses store count, area, or rank as a labeled proxy or asks to clarify." },
 
   // Unavailable data
   { prompt: "Which mall has the highest revenue?", category: "unavailable", expect: "States revenue is not in the data; does not fabricate." },
-  { prompt: "Which city had the fastest growth last quarter?", category: "unavailable", expect: "States there is no time-series/growth data." },
-  { prompt: "What is the foot traffic for Golden Gate Plaza?", category: "unavailable", expect: "States traffic data is unavailable." },
+  { prompt: "Which city had the fastest growth last quarter?", category: "unavailable", expect: "States there is no revenue/sales data; may offer store-opening trends from open_date as a labeled proxy." },
+  { prompt: "What is the foot traffic at 上海大悦城?", category: "unavailable", expect: "States traffic data is unavailable." },
 
   // Chart behavior
   { prompt: "Chart the number of stores by city.", category: "chart", expect: "Bar chart spec with x=city, y=store_count." },

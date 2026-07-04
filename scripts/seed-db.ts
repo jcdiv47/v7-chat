@@ -30,9 +30,9 @@ async function main() {
   try {
     await client.query(SCHEMA_SQL);
     await client.query(DATA_SQL);
-    const cities = await client.query("select count(*)::int n from cities");
-    const malls = await client.query("select count(*)::int n from malls");
-    const stores = await client.query("select count(*)::int n from stores");
+    const cities = await client.query("select count(*)::int n from aiqa.cities");
+    const malls = await client.query("select count(*)::int n from aiqa.malls");
+    const stores = await client.query("select count(*)::int n from aiqa.stores");
     console.log(
       `Seeded: ${cities.rows[0].n} cities, ${malls.rows[0].n} malls, ${stores.rows[0].n} stores.`,
     );

@@ -79,11 +79,11 @@ async function runOffline(executor: PostgresExecutor) {
   console.log(`${C.yellow}No model configured — running the offline data-layer check.${C.reset}`);
   console.log(`${C.gray}Set OPENROUTER_API_KEY to run the full agent eval.${C.reset}\n`);
   const checks: Array<[string, string, number]> = [
-    ["cities", "select count(*) n from cities", 6],
-    ["malls", "select count(*) n from malls", 14],
-    ["stores", "select count(*) n from stores", 38],
-    ["empty malls", "select count(*) n from malls m left join stores s on s.mall_id=m.id where s.id is null", 1],
-    ["mall-less cities", "select count(*) n from cities c left join malls m on m.city_id=c.id where m.id is null", 1],
+    ["cities", "select count(*) n from aiqa.cities", 6],
+    ["malls", "select count(*) n from aiqa.malls", 9],
+    ["stores", "select count(*) n from aiqa.stores", 26],
+    ["empty malls", "select count(*) n from aiqa.malls m left join aiqa.stores s on s.mall_id=m.id where s.id is null", 1],
+    ["mall-less cities", "select count(*) n from aiqa.cities c left join aiqa.malls m on m.city=c.city where m.id is null", 1],
   ];
   let ok = 0;
   for (const [label, sql, expected] of checks) {

@@ -31,22 +31,22 @@ const REASONING = [
   "count query, then summarize with a chart.",
 ];
 
-const SQL = `select c.name as city_name, count(m.id) as mall_count
-from cities c
-left join malls m on m.city_id = c.id
-group by c.name
+const SQL = `select c.city, count(m.id) as mall_count
+from aiqa.cities c
+left join aiqa.malls m on m.city = c.city
+group by c.city
 order by mall_count desc;`;
 
 const ROWS = [
-  { city_name: "Austin", mall_count: 3 },
-  { city_name: "Denver", mall_count: 3 },
-  { city_name: "San Francisco", mall_count: 3 },
-  { city_name: "Seattle", mall_count: 3 },
-  { city_name: "Portland", mall_count: 2 },
-  { city_name: "Boise", mall_count: 0 },
+  { city: "上海市", mall_count: 3 },
+  { city: "北京市", mall_count: 3 },
+  { city: "深圳市", mall_count: 1 },
+  { city: "沈阳市", mall_count: 1 },
+  { city: "佳木斯市", mall_count: 1 },
+  { city: "三沙市", mall_count: 0 },
 ];
 
-const ANSWER = `**Answer (offline demo).** Malls are spread across 6 cities, with Austin, Denver, San Francisco, and Seattle tied at the top (3 malls each), Portland at 2, and Boise with none.
+const ANSWER = `**Answer (offline demo).** Malls are spread across 6 cities, with 上海市 and 北京市 tied at the top (3 malls each), and 三沙市 with none.
 
 **Evidence.** See the grouped count in the result table and the bar chart.
 
@@ -96,8 +96,8 @@ export async function runDemoAnalysis(opts: {
     output: {
       tables: [
         { name: "cities", rowEstimate: 6 },
-        { name: "malls", rowEstimate: 14 },
-        { name: "stores", rowEstimate: 38 },
+        { name: "malls", rowEstimate: 9 },
+        { name: "stores", rowEstimate: 26 },
       ],
     },
   });
@@ -123,7 +123,7 @@ export async function runDemoAnalysis(opts: {
     output: {
       ok: true,
       columns: [
-        { name: "city_name", type: "text" },
+        { name: "city", type: "text" },
         { name: "mall_count", type: "int8" },
       ],
       rows: ROWS,
@@ -139,12 +139,12 @@ export async function runDemoAnalysis(opts: {
   await saveArtifact({
     type: "table",
     title: "Result — malls per city",
-    payload: { columns: [{ name: "city_name", type: "text" }, { name: "mall_count", type: "int8" }], rows: ROWS, rowCount: ROWS.length, truncated: false, sql: SQL },
+    payload: { columns: [{ name: "city", type: "text" }, { name: "mall_count", type: "int8" }], rows: ROWS, rowCount: ROWS.length, truncated: false, sql: SQL },
   });
   await saveArtifact({
     type: "chartSpec",
     title: "Malls per city",
-    payload: { type: "bar", title: "Malls per city", x: "city_name", y: "mall_count", sourceSql: SQL },
+    payload: { type: "bar", title: "Malls per city", x: "city", y: "mall_count", sourceSql: SQL },
   });
 
   if (!(await cont(2))) return { finishReason: "abort", steps: 2, aborted: true };

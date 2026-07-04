@@ -18,6 +18,8 @@ Steer SQL generation and query iteration for read-only Postgres analysis.
 
 - Only `SELECT` / `WITH` (read-only) queries are allowed. Writes, DDL, and
   data-modifying CTEs are rejected by the backend.
+- The analysis tables live in the `aiqa` schema; schema-qualify names
+  (`aiqa.malls`) — the connection's search_path may not include it.
 - Prefer simple CTEs for multi-step analysis; avoid unnecessarily complex SQL.
 - Use clear, explicit aliases (`c` for cities, `m` for malls, `s` for stores).
 - Use `count(...)`, `group by`, and `order by` for rankings and comparisons.
