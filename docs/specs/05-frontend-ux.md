@@ -171,10 +171,19 @@ except the final response renders inside one collapsible **work block** per turn
 The final answer is the **trailing run of `text` parts** in the turn, rendered as
 markdown below the work block. While streaming, a text part is treated as final as
 soon as it starts; if a later tool call arrives, that text retroactively becomes
-intermediate work and folds back into the block. A consequence to preserve: when the
-model ends its turn with a tool call (e.g. saving an artifact after writing its
-answer), the answer text lives inside the work block and the turn renders no prose
-below the fold.
+intermediate work and folds back into the block. Two exceptions to the trailing
+scan:
+
+- `presentData` parts are **skipped** when finding the trailing run — a view call
+  placed after prose must not fold the answer back into the work block.
+- A consequence to preserve for other tools: when the model ends its turn with a
+  tool call (e.g. saving a finding after writing its answer), the answer text
+  lives inside the work block and the turn renders no prose below the fold.
+
+`presentData` parts are also **lifted out of the work block** entirely: they render
+as inline data views between the work block and the final answer, in stream order,
+and do not appear as dots on the work rail. See "Inline Data Views" below and
+`08-generative-ui.md`.
 
 ### Interleaving
 
@@ -211,6 +220,9 @@ The renderer is driven by the ordered `parts` of each streamed assistant UI mess
   artifacts/events.
 - `text` parts → the trailing run is the final answer below the block; any earlier
   text renders inside the work block as intermediate work.
+- `presentData` tool parts → inline data views (not work rows). Render only from
+  the tool's `output` (the validated, normalized spec); while the part is still
+  running, render nothing. See `08-generative-ui.md`.
 
 The frontend should preserve, per message: assistant text, reasoning, tool call state
 and results summaries, artifact references, and final response metadata.
@@ -219,8 +231,9 @@ and results summaries, artifact references, and final response metadata.
 
 Analysis outputs are first-class but live inside the chat-first design.
 
-- **Inline in the conversation:** SQL blocks (copyable), compact result tables, and
-  charts render inline as rich blocks within the assistant message.
+- **Inline in the conversation:** data views the agent chose to present (tables,
+  charts, stat callouts) render inline between the work block and the answer; SQL
+  and full result previews stay behind tool rows and the artifact panel.
 - **Artifact panel (on-demand):** clicking an artifact reference — or the `Artifacts`
   nav item — opens the right-side panel. Within a given artifact the panel exposes tabs:
 
@@ -229,6 +242,20 @@ Analysis outputs are first-class but live inside the chat-first design.
   - `Table`
   - `Chart`
   - `Run Events` (behind a developer/debug toggle in V1)
+
+### Inline Data Views
+
+The `<DataView>` component renders a validated view spec (`08-generative-ui.md`)
+against a referenced query result:
+
+- **Rows come from Convex, not the stream.** Streamed and persisted tool parts
+  carry only a ~20-row preview; `DataView` fetches full rows (up to the `runSql`
+  cap) reactively via `artifacts.get(resultId)`, with a skeleton while loading.
+  This makes live streams and reopened historical threads render identically.
+- **Table fallback, always.** The spec is re-validated with the shared Zod schema
+  at render time; on parse failure, a missing column, or an unplottable variant,
+  the view degrades to the plain result table — never a broken or empty chart.
+- One view per `presentData` call; multiple calls in a turn stack in stream order.
 
 ### Result Table
 
@@ -240,8 +267,10 @@ Analysis outputs are first-class but live inside the chat-first design.
 
 ### Chart View
 
-- render chart spec from agent output
-- show table fallback when the chart spec is missing or invalid
+- the panel's Chart tab renders `view` artifacts through the same `DataView` as
+  the inline path, joining rows by `resultId` (no SQL-string matching)
+- legacy `chartSpec` artifacts keep the old source-SQL matching render path
+- show table fallback when the view spec is missing or invalid
 - expose the underlying SQL
 - Recharts is the pragmatic default (shadcn/ui has examples)
 
@@ -328,7 +357,7 @@ Artifact:
 type ArtifactViewModel = {
   id: string;
   runId: string;
-  type: "sql" | "table" | "chartSpec" | "finding" | "error";
+  type: "sql" | "table" | "view" | "finding" | "error" | "chartSpec"; // chartSpec is legacy
   title: string;
   createdAt: number;
   preview?: string;
@@ -351,5 +380,10 @@ type ArtifactViewModel = {
 - User can ask a question and see a streamed answer.
 - User can inspect the SQL used, the tabular results, and a basic chart for
   grouped/ranking questions.
+- For grouped/ranking questions the agent presents an inline chart on its own,
+  rendered between the work block and the answer; the view survives refresh
+  mid-stream and reopening the thread later.
+- An invalid or unplottable view spec degrades to a plain result table without
+  failing the run.
 - User can revisit prior sessions and prior runs within a session.
 - UI remains usable when SQL fails or returns no rows.

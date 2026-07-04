@@ -86,23 +86,30 @@ Responsibilities:
 - enforce timeout and max rows
 - log SQL and metadata
 - return rows, columns, row count, and execution time
+- return a `resultId` referencing the auto-saved result artifact, which
+  `presentData` uses to reference the data (see `08-generative-ui.md`)
 - reject obvious non-read statements
 
 ### `saveArtifact`
 
 Stores final or intermediate analysis artifacts in Convex.
 
-Artifact types:
+Artifact types the tool accepts:
 
-- `sql`
-- `table`
-- `chartSpec`
 - `finding`
 - `error`
 
-### `proposeChart`
+`sql` and `table` artifacts are auto-saved by `runSql`; `view` artifacts are
+saved by `presentData`. The legacy `chartSpec` type remains in the storage
+union for existing rows but is no longer produced.
 
-Optional V1 tool or local function. Converts result metadata into a chart spec. It can also be model-generated structured output.
+### `presentData`
+
+Presents a query result as an inline view (table, bar, line, scatter, or stat)
+in the conversation. The tool's input schema is a permissive flat object; the
+strict view-spec union is validated inside `execute`, and failures return as
+structured tool results the model can correct on the next step — a schema
+failure never aborts the run. Full contract in `08-generative-ui.md`.
 
 ## Runtime Context
 
@@ -162,7 +169,8 @@ Potential behavior:
 - Step 1: load domain skill or inspect schema.
 - Step 2: draft and run SQL.
 - Step 3: inspect result and optionally run follow-up SQL.
-- Step 4: answer with artifacts.
+- Step 4: present a view when it aids interpretation (`presentData`).
+- Step 5: answer with artifacts.
 
 ## Structured Output
 
@@ -176,15 +184,13 @@ type AnalysisAnswer = {
   evidence: string[];
   caveats: string[];
   sqlUsed: string[];
-  chart?: {
-    type: "bar" | "line" | "table" | "none";
-    title: string;
-    x?: string;
-    y?: string;
-  };
   followUps: string[];
 };
 ```
+
+Charts are not part of the final-answer shape: visualization is a tool call
+(`presentData`, see `08-generative-ui.md`), decided by the agent mid-turn, not
+structured output extracted at the end.
 
 Do not block V1 on perfect structured output. The artifact tool can store SQL and result previews even if final prose is free-form.
 
@@ -208,7 +214,7 @@ Messages are stored in Convex as AI SDK UI messages: role plus ordered parts.
 Model context for a new turn is built from the thread's messages with a compaction policy:
 
 - current turn: full fidelity
-- prior turns: user text, assistant text, and one-line tool summaries (tool name, SQL, row count); drop reasoning and raw tool outputs
+- prior turns: user text, assistant text, and one-line tool summaries (tool name, SQL, row count; for `presentData`, the view type, title, column mapping, and `resultId` — so follow-up turns can adjust a view or reuse its result without re-running SQL); drop reasoning and raw tool outputs
 - cap history at the last 100 messages or ~20k tokens of compacted history (estimated by characters), whichever binds first; smarter summarization is a V2 concern
 - history is re-sent on every step of the tool loop, so long threads lean on prompt caching where the underlying model supports it
 
