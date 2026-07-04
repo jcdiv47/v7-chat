@@ -47,7 +47,10 @@ export const history = internalQuery({
       .map((m) => ({
         role: m.role,
         text: m.text,
-        toolLines: m.toolLines ?? [],
+        // A cancelled turn's text carries none of what its tools returned, so
+        // its tool summaries would tell the model it already did work whose
+        // results are not in context — a recipe for hallucinated recall.
+        toolLines: m.status === "cancelled" ? [] : (m.toolLines ?? []),
       }));
   },
 });
