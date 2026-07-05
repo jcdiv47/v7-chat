@@ -56,10 +56,15 @@ function errText(err: unknown): string {
   return String(err);
 }
 
+/** Name-based only (also covers DOMException, which isn't an Error in Node):
+ * message sniffing would misclassify provider errors like "connection aborted
+ * by remote host" as user cancels. The caller additionally checks whether *we*
+ * aborted via `controller.signal.aborted`. */
 function isAbortError(err: unknown): boolean {
   return (
-    err instanceof Error &&
-    (err.name === "AbortError" || /abort/i.test(err.message))
+    typeof err === "object" &&
+    err !== null &&
+    (err as { name?: unknown }).name === "AbortError"
   );
 }
 
@@ -176,13 +181,20 @@ export async function runAnalysisAgent(
             metadata: { toolCallId: chunk.toolCallId, error: chunk.errorText },
           });
           break;
+        case "tool-input-error":
+          await opts.onEvent?.({
+            type: "tool.finished",
+            createdAt: Date.now(),
+            metadata: { toolCallId: chunk.toolCallId, error: chunk.errorText },
+          });
+          break;
         default:
           break;
       }
       await opts.onChunk(chunk);
     }
   } catch (err) {
-    if (isAbortError(err)) {
+    if (controller.signal.aborted || isAbortError(err)) {
       aborted = true;
     } else {
       errorText = errText(err);

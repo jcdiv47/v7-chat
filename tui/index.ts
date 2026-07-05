@@ -250,6 +250,9 @@ async function main() {
       if (result.errorText) stdout.write(`\n${C.red}(run error: ${result.errorText})${C.reset}`);
       stdout.write(`\n${C.gray}— ${result.steps} step(s)${C.reset}\n\n`);
     } catch (err) {
+      // Drop the user turn that got no assistant reply, so the next question
+      // doesn't send two consecutive user messages (some providers reject that).
+      history.pop();
       stdout.write(`\n${C.red}Failed: ${err instanceof Error ? err.message : String(err)}${C.reset}\n\n`);
     }
   }

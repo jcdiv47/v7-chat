@@ -13,6 +13,7 @@ import { ANON_USER_ID, HEARTBEAT_STALE_MS } from "./lib/constants";
 import { persistentTextStreaming } from "./lib/streaming";
 import {
   buildToolLines,
+  capPartsForStorage,
   parseStreamBody,
   reduceChunks,
   type RenderTextPart,
@@ -27,7 +28,7 @@ export const latestForThread = query({
       .withIndex("by_thread", (q) => q.eq("threadId", threadId))
       .order("desc")
       .first();
-    if (!run) return null;
+    if (!run || run.userId !== ANON_USER_ID) return null;
     return {
       _id: run._id,
       status: run.status,
@@ -182,6 +183,7 @@ export async function finalizeInterruptedRun(
   if (run.status !== "running") return;
 
   let parts: unknown[] = [];
+  let toolLines: string[] = [];
   let text = "";
   try {
     const body = await persistentTextStreaming.getStreamBody(
@@ -189,11 +191,13 @@ export async function finalizeInterruptedRun(
       run.streamId as StreamId,
     );
     const reduced = reduceChunks(parseStreamBody(body.text));
-    parts = reduced.parts;
-    text = reduced.parts
+    const capped = capPartsForStorage(reduced.parts);
+    parts = capped;
+    toolLines = buildToolLines(reduced.parts);
+    text = capped
       .filter((p): p is RenderTextPart => p.kind === "text")
       .map((p) => p.text)
-      .join("")
+      .join("\n\n")
       .trim();
   } catch {
     // Stream already deleted or unreadable — finalize with no partial output.
@@ -203,7 +207,7 @@ export async function finalizeInterruptedRun(
     status: "failed",
     text,
     parts,
-    toolLines: buildToolLines(parts as Parameters<typeof buildToolLines>[0]),
+    toolLines,
     error,
     loadedSkillNames: run.loadedSkillNames,
   });
@@ -233,7 +237,10 @@ export const finish = internalMutation({
   },
   handler: async (ctx, args) => {
     const run = await ctx.db.get(args.runId);
-    if (!run) return;
+    // Only a still-running run may be finalized. If the sweeper or a new send
+    // already reclaimed it (stale heartbeat), storing a second outcome would
+    // insert a duplicate assistant message and overwrite the terminal status.
+    if (!run || run.status !== "running") return null;
     const { runId: _runId, ...outcome } = args;
     return await storeRunOutcome(ctx, run, outcome);
   },

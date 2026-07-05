@@ -4,7 +4,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -81,11 +80,7 @@ export function Chart({ spec, rows }: { spec: ChartSpec; rows: Row[] }) {
                 width={110}
               />
               <Tooltip content={<ChartTooltip xLabel={x} yLabel={y} />} cursor={{ fill: "var(--accent)" }} />
-              <Bar dataKey="value" fill="var(--chart-1)" radius={[0, 4, 4, 0]} barSize={16}>
-                {data.map((_, i) => (
-                  <Cell key={i} />
-                ))}
-              </Bar>
+              <Bar dataKey="value" fill="var(--chart-1)" radius={[0, 4, 4, 0]} barSize={16} />
             </BarChart>
           ) : (
             <BarChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
@@ -109,7 +104,7 @@ function ChartTooltip({
   yLabel,
 }: {
   active?: boolean;
-  payload?: Array<{ payload: { label: string; value: number } }>;
+  payload?: Array<{ payload: { label: string; value: number | null } }>;
   xLabel: string;
   yLabel: string;
 }) {
@@ -121,13 +116,16 @@ function ChartTooltip({
         {xLabel}: <span className="text-foreground">{label}</span>
       </div>
       <div className="text-muted-foreground">
-        {yLabel}: <span className="font-medium text-foreground">{value}</span>
+        {yLabel}: <span className="font-medium text-foreground">{value ?? "—"}</span>
       </div>
     </div>
   );
 }
 
-function toNumber(v: unknown): number {
+/** NULL / non-numeric measures become null (a gap in the chart), not a fake 0
+ * bar that's indistinguishable from a real zero. */
+function toNumber(v: unknown): number | null {
+  if (v == null) return null;
   const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : null;
 }

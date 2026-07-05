@@ -35,7 +35,10 @@ export function loadExecutorConfig(): ExecutorConfig {
   return {
     statementTimeoutMs: num("SQL_STATEMENT_TIMEOUT_MS", 10_000),
     maxRows: num("SQL_MAX_ROWS", 500),
-    maxResultBytes: num("SQL_MAX_RESULT_BYTES", 1_000_000),
+    // Meaningfully below Convex's ~1MB document limit: the capped rows are
+    // stored verbatim in a `table` artifact document, whose sql/title/metadata
+    // also count against the limit.
+    maxResultBytes: num("SQL_MAX_RESULT_BYTES", 700_000),
   };
 }
 

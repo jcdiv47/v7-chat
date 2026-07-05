@@ -24,20 +24,6 @@ export const save = internalMutation({
   },
 });
 
-/** All artifacts for a thread (the Artifacts nav view). */
-export const listForThread = query({
-  args: { threadId: v.id("threads") },
-  handler: async (ctx, { threadId }) => {
-    const thread = await ctx.db.get(threadId);
-    if (!thread || thread.userId !== ANON_USER_ID) return [];
-    return await ctx.db
-      .query("artifacts")
-      .withIndex("by_thread", (q) => q.eq("threadId", threadId))
-      .order("desc")
-      .collect();
-  },
-});
-
 /** Artifacts for one run (the artifact panel opened from a message). */
 export const listForRun = query({
   args: { runId: v.id("runs") },

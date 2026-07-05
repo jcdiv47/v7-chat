@@ -52,5 +52,9 @@ export function buildModelMessages(turns: CompactTurn[]): ModelMessage[] {
     total += size;
   }
 
+  // Truncation can leave the history starting with an assistant turn, which
+  // some providers reject — the conversation must open with a user message.
+  while (budgeted.length > 0 && budgeted[0].role === "assistant") budgeted.shift();
+
   return budgeted.map(toModelMessage);
 }

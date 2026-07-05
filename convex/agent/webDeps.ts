@@ -26,16 +26,29 @@ export function createWebDeps(
 ): AgentToolDeps {
   const { runId, threadId, stats } = opts;
 
+  // Mid-step fence: stamps the heartbeat (so one long tool step doesn't read as
+  // stale) and aborts the tool if the run was stopped or reclaimed — a dead
+  // executor must not keep writing artifacts/events alongside a newer run.
+  const assertLive = async () => {
+    const hb = await ctx.runMutation(internal.runs.heartbeat, { runId });
+    if (hb.stop) {
+      throw new Error("Run is no longer live (stopped or reclaimed).");
+    }
+  };
+
   return {
     async listTables() {
+      await assertLive();
       return await ctx.runAction(internal.node.postgres.listTables, {});
     },
 
     async describeTable(table: string) {
+      await assertLive();
       return await ctx.runAction(internal.node.postgres.describeTable, { table });
     },
 
     async runSql({ sql, purpose }) {
+      await assertLive();
       stats.sqlCount += 1;
       const result = await ctx.runAction(internal.node.postgres.runSql, { sql, purpose });
 
@@ -105,6 +118,7 @@ export function createWebDeps(
     },
 
     async saveArtifact({ type, title, payload }) {
+      await assertLive();
       stats.artifactCount += 1;
       const id = await ctx.runMutation(internal.artifacts.save, {
         runId,

@@ -100,7 +100,7 @@ export const sendMessage = mutation({
     const priorMessages = await ctx.db
       .query("messages")
       .withIndex("by_thread", (q) => q.eq("threadId", tid!))
-      .collect();
+      .take(2);
     const existingThread = await ctx.db.get(tid);
     if (priorMessages.length === 1 && existingThread?.title === "New chat") {
       await ctx.db.patch(tid, { title: deriveTitle(trimmed) });
@@ -198,6 +198,9 @@ export const editAndRerun = mutation({
       if (stale.length === 0) break;
       for (const a of stale) await ctx.db.delete(a._id);
     }
+
+    // The discarded turns' `runs` / `runEvents` rows are intentionally kept for
+    // run-level observability; their message ids may now point at deleted docs.
 
     await ctx.db.patch(messageId, { text: trimmed });
 

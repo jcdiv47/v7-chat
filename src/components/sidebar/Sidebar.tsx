@@ -111,6 +111,7 @@ export function Sidebar({
                 thread={t}
                 active={t._id === activeThreadId}
                 onNavigate={onNavigate}
+                onActiveDeleted={onNewChat}
               />
             ))}
           </Section>
@@ -124,6 +125,7 @@ export function Sidebar({
                   thread={t}
                   active={t._id === activeThreadId}
                   onNavigate={onNavigate}
+                  onActiveDeleted={onNewChat}
                 />
               ))}
             </Section>
@@ -166,10 +168,12 @@ function ThreadRow({
   thread,
   active,
   onNavigate,
+  onActiveDeleted,
 }: {
   thread: Thread;
   active: boolean;
   onNavigate: (id: Id<"threads">) => void;
+  onActiveDeleted: () => void;
 }) {
   const setPinned = useMutation(api.threads.setPinned);
   const rename = useMutation(api.threads.rename);
@@ -241,7 +245,18 @@ function ThreadRow({
             <Pencil className="size-4" /> Rename
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem destructive onClick={() => remove({ threadId: thread._id })}>
+          <DropdownMenuItem
+            destructive
+            onClick={() => {
+              if (!window.confirm(`Delete "${thread.title}"? This cannot be undone.`)) {
+                return;
+              }
+              void remove({ threadId: thread._id });
+              // Leave the deleted thread's route so the app doesn't strand on
+              // a dead thread id (empty state over a "Thread not found" send).
+              if (active) onActiveDeleted();
+            }}
+          >
             <Trash2 className="size-4" /> Delete
           </DropdownMenuItem>
         </DropdownMenuContent>

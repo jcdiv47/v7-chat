@@ -17,7 +17,6 @@ import { createAgentTools } from "../src/lib/agent/tools";
 import { createDiskSkillSource } from "../src/lib/skills/disk";
 import { createNodeExecutor } from "../src/lib/sql/pglite-executor";
 import { getModel, hasRealModel, resolveModelDef } from "../src/lib/models/registry";
-import { seedStatements } from "../src/lib/sql/seed";
 import type { AgentToolDeps, AnalysisRuntimeContext } from "../src/lib/agent/types";
 import type { PostgresExecutor } from "../src/lib/sql/executor";
 
@@ -34,7 +33,6 @@ function loadEnv() {
 type Capture = {
   sql: string[];
   chartSaved: boolean;
-  toolCount: number;
   answer: string;
 };
 
@@ -101,8 +99,6 @@ async function main() {
   const limit = Number(process.argv[2]) || EVAL_PROMPTS.length;
   const prompts = EVAL_PROMPTS.slice(0, limit);
   const skills = createDiskSkillSource("agent-skills");
-  // Ensure the disk skills are bundled-consistent for the version stamp.
-  void seedStatements;
   const { executor, kind } = await createNodeExecutor();
 
   if (!hasRealModel()) {
@@ -116,14 +112,13 @@ async function main() {
 
   const results: Array<{ p: EvalPrompt; pass: boolean; note: string; cap: Capture }> = [];
   for (const p of prompts) {
-    const cap: Capture = { sql: [], chartSaved: false, toolCount: 0, answer: "" };
+    const cap: Capture = { sql: [], chartSaved: false, answer: "" };
     const deps = evalDeps(executor, skills, cap);
     const tools = createAgentTools(deps);
     const textParts: string[] = [];
     const rc: AnalysisRuntimeContext = { requestId: "eval", runId: "eval", threadId: "eval", userId: "eval", modelAlias: "analyst", activeSkillNames: skills.list().map((s) => s.name), loadedSkillNames: [], skillsVersion: skills.version };
     const onChunk = (c: UIMessageChunk) => {
       if (c.type === "text-delta") textParts.push(c.delta);
-      if (c.type === "tool-input-available") cap.toolCount++;
     };
     try {
       await runAnalysisAgent({ model: getModel("analyst"), temperature: def.temperature, maxOutputTokens: def.maxOutputTokens, instructions: buildInstructions(skills.list()), messages: [{ role: "user", content: p.prompt }], tools, maxSteps: 12, runtimeContext: rc, onChunk });

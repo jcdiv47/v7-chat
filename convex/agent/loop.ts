@@ -18,6 +18,7 @@ import { createAgentTools } from "../../src/lib/agent/tools";
 import { runAnalysisAgent, type RunAgentResult } from "../../src/lib/agent/run";
 import {
   buildToolLines,
+  capPartsForStorage,
   reduceChunks,
   trimChunkForStream,
   type RenderTextPart,
@@ -37,6 +38,9 @@ import type { AnalysisRuntimeContext, ModelAlias } from "../../src/lib/agent/typ
 const hasDelimiter = (text: string) =>
   text.includes(".") || text.includes("!") || text.includes("?");
 
+/** Don't let a punctuation-less run of deltas sit unflushed indefinitely. */
+const MAX_PENDING_CHARS = 2048;
+
 /**
  * Entry point from the scheduled drive action. Replicates the
  * persistent-text-streaming writer without an HTTP request: append chunks via
@@ -52,9 +56,9 @@ export async function runAgentDetached(
   if (status !== "pending") return; // already driven (duplicate schedule)
 
   let pending = "";
-  const append = async (text: string) => {
+  const append = async (text: string, flush = false) => {
     pending += text;
-    if (hasDelimiter(text)) {
+    if (flush || hasDelimiter(text) || pending.length >= MAX_PENDING_CHARS) {
       await ctx.runMutation(lib.addChunk, { streamId, text: pending, final: false });
       pending = "";
     }
@@ -74,7 +78,7 @@ export async function runAgentDetached(
 async function runAgentForStream(
   ctx: ActionCtx,
   streamId: string,
-  append: (text: string) => Promise<void>,
+  append: (text: string, flush?: boolean) => Promise<void>,
 ): Promise<void> {
   const run = await ctx.runQuery(internal.runs.getByStream, { streamId });
   if (!run || run.status !== "running") return;
@@ -86,7 +90,11 @@ async function runAgentForStream(
     const trimmed = trimChunkForStream(chunk);
     collected.push(trimmed);
     if (chunk.type === "tool-input-available") stats.toolCallCount += 1;
-    await append(JSON.stringify(trimmed) + "\n");
+    // Structural chunks (tool rows, step/finish markers) flush immediately so
+    // live viewers see them without waiting for the next sentence delimiter;
+    // only text/reasoning deltas are batched.
+    const isDelta = chunk.type === "text-delta" || chunk.type === "reasoning-delta";
+    await append(JSON.stringify(trimmed) + "\n", !isDelta);
   };
 
   // Heartbeat + stop check at each step boundary.
@@ -119,7 +127,6 @@ async function runAgentForStream(
   try {
     if (!hasRealModel()) {
       const demo = await runDemoAnalysis({
-        userText: "",
         onChunk,
         saveArtifact: deps.saveArtifact,
         beforeStep,
@@ -168,10 +175,13 @@ async function runAgentForStream(
   }
 
   const reduced = reduceChunks(collected);
-  const finalText = reduced.parts
+  // Cap the stored parts under the Convex document limit; tool lines keep full
+  // fidelity (they're tiny) so history compaction still sees row counts.
+  const parts = capPartsForStorage(reduced.parts);
+  const finalText = parts
     .filter((p): p is RenderTextPart => p.kind === "text")
     .map((p) => p.text)
-    .join("")
+    .join("\n\n")
     .trim();
   const toolLines = buildToolLines(reduced.parts);
   const errorText = result.errorText ?? reduced.errorText;
@@ -187,11 +197,11 @@ async function runAgentForStream(
     await append(JSON.stringify({ type: "error", errorText }) + "\n");
   }
 
-  await ctx.runMutation(internal.runs.finish, {
+  const assistantMessageId = await ctx.runMutation(internal.runs.finish, {
     runId: run._id,
     status,
     text: finalText || (status === "cancelled" ? "_(stopped)_" : ""),
-    parts: reduced.parts,
+    parts,
     toolLines,
     finishReason: result.finishReason,
     error: errorText,
@@ -202,6 +212,10 @@ async function runAgentForStream(
     sqlCount: stats.sqlCount,
     loadedSkillNames: [...stats.loadedSkills],
   });
+  // Null means the run was already finalized (reclaimed as failed by the
+  // sweeper or a new send while this executor looked stale) — the outcome on
+  // record is that one, so don't log a bogus completion event on top of it.
+  if (assistantMessageId == null) return;
 
   await ctx.runMutation(internal.events.append, {
     runId: run._id,

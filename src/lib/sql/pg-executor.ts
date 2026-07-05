@@ -129,14 +129,21 @@ export function createPgExecutor(
           // READ ONLY transaction is a second layer of write protection.
           await client.query("BEGIN TRANSACTION READ ONLY");
           try {
-            const res = await client.query<Record<string, unknown>>(safeSql);
+            // Push the row cap into Postgres: without it, a query returning
+            // millions of rows is fully materialized in this action's memory
+            // before capRows trims it. The +1 preserves `truncated` detection
+            // (capRows flags and slices anything beyond maxRows).
+            const bounded = `select * from (${safeSql.replace(/;+\s*$/, "")}) as q limit ${
+              cfg.maxRows + 1
+            }`;
+            const res = await client.query<Record<string, unknown>>(bounded);
             const normalizedRows = normalizePgRowsForConvex(res.rows, res.fields ?? []);
             const { rows, truncated } = capRows(normalizedRows, cfg);
             return {
               ok: true as const,
               columns: fieldsToColumns(res.fields ?? []),
               rows,
-              rowCount: res.rowCount ?? rows.length,
+              rowCount: rows.length,
               truncated,
               executionTimeMs: Date.now() - startedAt,
               sql: safeSql,

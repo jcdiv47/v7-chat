@@ -125,16 +125,19 @@ export function Conversation({
       .finally(() => {
         dispatchingQueuedRef.current = false;
       });
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- startRun is recreated every render
+  }, [queued, threadId, liveStreaming]);
 
+  // Retry/edit deliberately omit modelAlias so the backend falls back to the
+  // model the original turn used, instead of the composer's (reset) selection.
   const handleRetry = async () => {
     if (!threadId) return;
-    await retryLast({ threadId, modelAlias });
+    await retryLast({ threadId });
     setAtBottom(true);
   };
 
   const handleEdit = async (messageId: Id<"messages">, text: string) => {
-    await editAndRerun({ messageId, text, modelAlias });
+    await editAndRerun({ messageId, text });
     setAtBottom(true);
   };
 
@@ -152,7 +155,16 @@ export function Conversation({
         className="flex-1 overflow-y-auto"
       >
         {isEmpty && !running ? (
-          <EmptyState onPick={handleSend} />
+          <EmptyState
+            onPick={(q) => {
+              // Surface a rejected send (e.g. the thread was just deleted)
+              // through the queued-message banner instead of an unhandled
+              // rejection that shows the user nothing.
+              handleSend(q).catch(() => {
+                if (threadId) setQueued({ threadId, text: q, failed: true });
+              });
+            }}
+          />
         ) : (
           <div className="mx-auto w-full max-w-3xl px-4 py-6">
             {messages?.map((m) =>

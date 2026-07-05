@@ -61,7 +61,6 @@ function chunkText(text: string, size = 24): string[] {
 }
 
 export async function runDemoAnalysis(opts: {
-  userText: string;
   onChunk: (chunk: UIMessageChunk) => Promise<void> | void;
   saveArtifact: AgentToolDeps["saveArtifact"];
   beforeStep?: (stepNumber: number) => Promise<boolean> | boolean;

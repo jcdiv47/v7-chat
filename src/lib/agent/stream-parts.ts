@@ -209,6 +209,16 @@ export function reduceChunks(chunks: UIMessageChunk[]): ReducedMessage {
         part.errorText = chunk.errorText;
         break;
       }
+      case "tool-input-error": {
+        // Invalid tool input that repair couldn't fix: the call never executes,
+        // so treat it like an execution error or the part pulses forever.
+        const part = ensureTool(chunk.toolCallId, chunk.toolName);
+        part.name = chunk.toolName;
+        part.input = chunk.input;
+        part.status = "error";
+        part.errorText = chunk.errorText;
+        break;
+      }
       case "error": {
         errorText = chunk.errorText;
         break;
@@ -229,6 +239,60 @@ export function reduceChunks(chunks: UIMessageChunk[]): ReducedMessage {
   }
 
   return { parts, finished, finishReason, errorText, aborted };
+}
+
+/** Byte budget for the `parts` array stored on an assistant message. Convex
+ * caps documents at ~1MB, and the message doc also carries `text` (derived
+ * from the text parts, so up to the same size again) plus tool lines — keep
+ * parts well under half the limit so the finalize mutation can never throw. */
+export const MESSAGE_PARTS_BYTE_BUDGET = 400_000;
+
+const jsonBytes = (value: unknown) =>
+  new TextEncoder().encode(JSON.stringify(value)).length;
+
+/**
+ * Shrink parts to fit the storage budget, degrading least-valuable data first:
+ * bulky tool outputs (full previews live in artifacts), then reasoning text,
+ * then intermediate text parts — keeping the final answer intact if possible.
+ */
+export function capPartsForStorage(
+  parts: RenderPart[],
+  maxBytes = MESSAGE_PARTS_BYTE_BUDGET,
+): RenderPart[] {
+  if (jsonBytes(parts) <= maxBytes) return parts;
+
+  let capped: RenderPart[] = parts.map((p) =>
+    p.kind === "tool" && p.output != null
+      ? { ...p, output: { truncatedForStorage: true }, inputText: undefined }
+      : p,
+  );
+  if (jsonBytes(capped) <= maxBytes) return capped;
+
+  capped = capped.map((p) =>
+    p.kind === "reasoning" && p.text
+      ? { ...p, text: "(reasoning omitted — too large to store)" }
+      : p,
+  );
+  if (jsonBytes(capped) <= maxBytes) return capped;
+
+  // Drop intermediate text parts oldest-first, preserving the last one.
+  for (let i = 0; i < capped.length - 1 && jsonBytes(capped) > maxBytes; i++) {
+    const p = capped[i];
+    if (p.kind === "text" && p.text) {
+      capped[i] = { ...p, text: "(intermediate text omitted — too large to store)" };
+    }
+  }
+
+  // Last resort: hard-truncate the final text part to fit.
+  const last = capped[capped.length - 1];
+  const overshoot = jsonBytes(capped) - maxBytes;
+  if (overshoot > 0 && last?.kind === "text") {
+    capped[capped.length - 1] = {
+      ...last,
+      text: last.text.slice(0, Math.max(0, last.text.length - overshoot)),
+    };
+  }
+  return capped;
 }
 
 /** Human-readable label for a tool part (used by the folded tool row). */
@@ -261,7 +325,8 @@ export function buildToolLines(parts: RenderPart[]): string[] {
       const sql = (input.sql ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
       const rows =
         typeof output.rowCount === "number" ? ` (rows: ${output.rowCount})` : "";
-      lines.push(`runSql: ${sql}${rows}`);
+      const failed = part.status === "error" ? " (failed)" : "";
+      lines.push(`runSql: ${sql}${rows}${failed}`);
     } else {
       lines.push(toolLabel(part));
     }

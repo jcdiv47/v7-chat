@@ -38,12 +38,15 @@ export const history = internalQuery({
   handler: async (ctx, { threadId, excludeRunId, beforeAt }) => {
     const messages = await ctx.db
       .query("messages")
-      .withIndex("by_thread", (q) => q.eq("threadId", threadId))
+      .withIndex("by_thread", (q) =>
+        beforeAt == null
+          ? q.eq("threadId", threadId)
+          : q.eq("threadId", threadId).lte("createdAt", beforeAt),
+      )
       .order("asc")
       .collect();
     return messages
       .filter((m) => !(excludeRunId && m.runId === excludeRunId))
-      .filter((m) => beforeAt == null || m.createdAt <= beforeAt)
       .map((m) => ({
         role: m.role,
         text: m.text,

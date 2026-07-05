@@ -19,8 +19,11 @@ const SKILL_ORDER = [
 type Frontmatter = { name?: string; description?: string; body: string };
 
 function parseFrontmatter(md: string): Frontmatter {
-  const match = md.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return { body: md.trim() };
+  // Normalize CRLF first: the frontmatter and per-line kv regexes assume LF,
+  // and a Windows checkout would otherwise silently lose name/description.
+  const normalized = md.replace(/\r\n/g, "\n");
+  const match = normalized.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!match) return { body: normalized.trim() };
   const [, yaml, body] = match;
   const fm: Frontmatter = { body: body.trim() };
   for (const line of yaml.split("\n")) {

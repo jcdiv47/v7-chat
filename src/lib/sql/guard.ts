@@ -15,7 +15,13 @@ export class SqlGuardError extends Error {
 }
 
 /** Keywords that indicate a write, DDL, or side-effecting statement. Matched as
- * whole words, so column names like `created_at` or `update_time` are safe. */
+ * whole words, so column names like `created_at` or `update_time` are safe.
+ *
+ * Known gap: side-effecting or exfiltrating *functions* callable from a plain
+ * SELECT are not blocked here — pg_sleep, pg_terminate_backend, pg_read_file,
+ * dblink, and sequence nextval (which commits a sequence bump even inside a
+ * READ ONLY transaction). Containing those is the job of the read-only role,
+ * `BEGIN READ ONLY`, and the statement timeout. */
 const FORBIDDEN_KEYWORDS = [
   "INSERT",
   "UPDATE",
@@ -90,7 +96,8 @@ export function assertReadOnlySql(rawSql: string): string {
     if (re.test(withoutTrailing)) {
       throw new SqlGuardError(
         `The keyword "${keyword}" is not permitted in read-only queries. ` +
-          "Data-modifying statements (including data-modifying CTEs) are blocked.",
+          "Data-modifying statements (including data-modifying CTEs) are blocked. " +
+          `If "${keyword.toLowerCase()}" is a column or alias name, double-quote it.`,
       );
     }
   }

@@ -162,7 +162,9 @@ export function ArtifactPanel({
 }
 
 function rowsForChart(spec: ChartSpec, tables: Artifact[]): Record<string, unknown>[] {
-  const match = tables.find((t) => t.payload.sql === spec.sourceSql) ?? tables[tables.length - 1];
+  // Only rows whose SQL matches the chart's source — no "last table" fallback:
+  // a chart silently rendered from unrelated data is worse than the empty state.
+  const match = tables.find((t) => t.payload.sql === spec.sourceSql);
   return (match?.payload.rows as Record<string, unknown>[]) ?? [];
 }
 
