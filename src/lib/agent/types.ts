@@ -1,6 +1,6 @@
 /**
- * Shared, runtime-agnostic types for the analysis agent. Imported by the Convex
- * web runtime (V8), the TUI (Node), and the frontend renderer. Keep this file
+ * Shared, runtime-agnostic types for the analysis agent. Imported by the
+ * server worker (Node), the TUI, and the frontend renderer. Keep this file
  * free of Node/browser-only APIs.
  */
 
@@ -78,7 +78,7 @@ export type AnalysisRuntimeContext = {
 
 /**
  * Dependency surface the agent tools execute against. The web runtime and the
- * TUI provide different implementations (Convex actions/mutations vs. direct
+ * TUI provide different implementations (Drizzle-backed server deps vs. direct
  * Postgres + console), but the tool definitions are identical.
  */
 export type AgentToolDeps = {

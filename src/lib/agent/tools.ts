@@ -1,7 +1,7 @@
 /**
  * Agent tool definitions. Identical across the web runtime and the TUI — only
- * the {@link AgentToolDeps} implementation differs (Convex actions/mutations vs.
- * direct Postgres + console). Credentials never appear here; they live in the
+ * the {@link AgentToolDeps} implementation differs (Drizzle-backed server deps
+ * vs. direct Postgres + console). Credentials never appear here; they live in the
  * server-side deps. See docs/specs/02-agent-runtime.md → Tools.
  */
 import { tool, type ToolSet } from "ai";

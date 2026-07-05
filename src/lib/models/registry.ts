@@ -83,8 +83,8 @@ function getProvider() {
   const apiKey = env("OPENROUTER_API_KEY");
   if (!apiKey) {
     throw new Error(
-      "OPENROUTER_API_KEY is not set. Set it in the Convex deployment (web) or " +
-        "the local environment (TUI), or set MODEL_PROVIDER=mock to use the offline demo runner.",
+      "OPENROUTER_API_KEY is not set. Set it in the server environment " +
+        "(.env.local / Railway variables), or set MODEL_PROVIDER=mock to use the offline demo runner.",
     );
   }
   _provider = createOpenAICompatible({

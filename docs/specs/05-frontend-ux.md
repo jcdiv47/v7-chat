@@ -1,5 +1,10 @@
 # 05 Frontend UX
 
+> **Data layer superseded by [11 — Remove Convex](./11-remove-convex.md).**
+> Convex `useQuery`/`useStream` hooks became tRPC + React Query hooks and a
+> cursor-based SSE run stream with an incremental client reducer. The design
+> direction, component structure, and UX behaviors below are unchanged.
+
 ## Design Direction
 
 V1 uses a Claude-like, chat-first design. The conversation is the primary surface. The

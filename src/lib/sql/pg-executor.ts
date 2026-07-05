@@ -1,7 +1,7 @@
 /**
  * `pg`-backed executor for the real intermediate Postgres database. Node-only:
- * imported by the Convex `"use node"` action and by the TUI when
- * INTERMEDIATE_DATABASE_URL is set. Never import this from a V8 Convex module.
+ * imported by the server worker deps and by the TUI when
+ * INTERMEDIATE_DATABASE_URL is set.
  */
 import { Client } from "pg";
 import type {
@@ -24,10 +24,10 @@ import {
 
 const POSTGRES_DATE_OID = 1082;
 
-function normalizePgValueForConvex(value: unknown, dataTypeID?: number): unknown {
+function normalizePgValueForJson(value: unknown, dataTypeID?: number): unknown {
   if (value instanceof Date) {
-    // Convex does not support JavaScript Date objects as values, so serialize
-    // them before this Node action returns across the Convex boundary.
+    // Rows travel through JSONL stream chunks and jsonb artifact payloads, so
+    // serialize Date objects into stable strings here.
     if (dataTypeID === POSTGRES_DATE_OID) {
       // PostgreSQL `date` is a calendar date, not a moment in time. Keep only
       // YYYY-MM-DD to avoid implying a UTC midnight timestamp.
@@ -35,14 +35,14 @@ function normalizePgValueForConvex(value: unknown, dataTypeID?: number): unknown
     }
 
     // PostgreSQL timestamp/timestamptz values do represent instants, so ISO is
-    // a stable Convex-safe representation for them.
+    // a stable JSON-safe representation for them.
     return value.toISOString();
   }
 
   return value;
 }
 
-function normalizePgRowsForConvex(
+function normalizePgRowsForJson(
   rows: Record<string, unknown>[],
   fields: Array<{ name: string; dataTypeID?: number }>,
 ): Record<string, unknown>[] {
@@ -52,7 +52,7 @@ function normalizePgRowsForConvex(
     Object.fromEntries(
       Object.entries(row).map(([key, value]) => [
         key,
-        normalizePgValueForConvex(value, fieldTypes.get(key)),
+        normalizePgValueForJson(value, fieldTypes.get(key)),
       ]),
     ),
   );
@@ -137,7 +137,7 @@ export function createPgExecutor(
               cfg.maxRows + 1
             }`;
             const res = await client.query<Record<string, unknown>>(bounded);
-            const normalizedRows = normalizePgRowsForConvex(res.rows, res.fields ?? []);
+            const normalizedRows = normalizePgRowsForJson(res.rows, res.fields ?? []);
             const { rows, truncated } = capRows(normalizedRows, cfg);
             return {
               ok: true as const,

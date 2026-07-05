@@ -1,5 +1,11 @@
 # 01 System Architecture
 
+> **Superseded in part by [11 — Remove Convex](./11-remove-convex.md).** The
+> Convex backend described below was replaced by a single long-lived Next.js
+> service on Railway with Postgres (Drizzle), tRPC, an in-process run worker,
+> and SSE streaming. The agent runtime, tools, skills, and data-access design
+> here still apply; read Convex-specific sections as historical context.
+
 ## Architecture Overview
 
 V1 uses Convex as the app backend and state store, a separate intermediate Postgres database as the analytical data source, and AI SDK V7 agents as the reasoning/runtime layer. Convex is also the source of truth for in-flight streaming, so live runs survive browser refresh (see [Resumable Streaming](#resumable-streaming)).

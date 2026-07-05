@@ -5,45 +5,47 @@ small dataset of **cities, malls, and stores**; the agent inspects the schema,
 writes and runs **read-only SQL**, and answers with tables, charts, and saved
 artifacts — in a Claude-like chat UI with live, resumable streaming.
 
-Built to the specs in [`docs/specs/`](./docs/specs/). Stack: **Next.js** (AI SDK
-UI + Tailwind + shadcn-style components) · **Convex** (state, run lifecycle, and
-resumable streaming) · **AI SDK v7 `ToolLoopAgent`** · **OpenRouter** · an
-intermediate **Postgres** database.
+Built to the specs in [`docs/specs/`](./docs/specs/). Stack: **Next.js** (one
+long-lived service: UI, tRPC API, in-process agent worker) · **Postgres +
+Drizzle** (state, run lifecycle, persisted stream) · **tRPC v11** with SSE
+subscriptions · **AI SDK v7 `ToolLoopAgent`** · **OpenRouter** · an intermediate
+**Postgres** database.
 
 ---
 
-## Quick start (offline demo — no API key or database)
+## Quick start (offline demo — no API key)
 
 ```bash
 npm install
-npx convex dev            # provisions a local backend, writes .env.local, keeps running
-# in another terminal:
-npx convex env set MODEL_PROVIDER mock   # deterministic offline runner
-npm run dev               # http://localhost:3000
+docker compose up -d db   # app Postgres on localhost:5433
+cp .env.example .env.local
+MODEL_PROVIDER=mock npm run dev   # http://localhost:3000
 ```
 
-With no `OPENROUTER_API_KEY` in the Convex deployment (or `MODEL_PROVIDER=mock`),
-the chat runs a **deterministic offline demo** that streams reasoning, tool
-calls, a result table, and a chart — enough to exercise the whole UI, streaming,
-and resumability without any external services.
+With `MODEL_PROVIDER=mock` (or no `OPENROUTER_API_KEY`), the chat runs a
+**deterministic offline demo** that streams reasoning, tool calls, a result
+table, and a chart — enough to exercise the whole UI, streaming, and
+resumability without any external services. Migrations apply automatically at
+boot.
 
 ## Going live (real model + database)
 
-1. **Model** — set an OpenRouter key on the Convex deployment and unset demo mode:
-   ```bash
-   npx convex env set OPENROUTER_API_KEY sk-or-...
-   npx convex env remove MODEL_PROVIDER
-   ```
-2. **Database** — point at a read-only Postgres containing `cities`, `malls`,
-   `stores`:
-   ```bash
-   npx convex env set INTERMEDIATE_DATABASE_URL postgres://readonly:pw@host:5432/analytics
-   ```
-   To create a local sample database: `SEED_DATABASE_URL=postgres://... npm run seed`.
+1. **Model** — set `OPENROUTER_API_KEY` in `.env.local` (or Railway service
+   variables) and leave `MODEL_PROVIDER` unset.
+2. **Database** — point `INTERMEDIATE_DATABASE_URL` at a read-only Postgres
+   containing `cities`, `malls`, `stores`. To create a local sample database:
+   `SEED_DATABASE_URL=postgres://... npm run seed`.
 
 Model aliases (`fast`, `analyst`, `sql`, `summarizer`) are defined in
 [`src/lib/models/registry.ts`](./src/lib/models/registry.ts) and overridable per
 alias with `MODEL_ANALYST=...` etc. See [`.env.example`](./.env.example).
+
+## Deploying (Railway)
+
+One service (`next build` / `next start`) plus a Railway Postgres. Set
+`DATABASE_URL` to the **private network** URL, plus the model/database vars
+above and `NEXT_MANUAL_SIG_HANDLE=true` so the SIGTERM drain can finish
+in-flight runs on deploys. Migrations run at boot.
 
 ## TUI (fast local iteration)
 
@@ -70,31 +72,38 @@ See [`evals/expected.md`](./evals/expected.md) for the rubric.
 
 ## How it works
 
-- **Resumable streaming.** The chat stream is a **Convex HTTP action** (not a
-  Next route), so a run survives client disconnects. The agent's AI SDK UI
-  message parts are encoded as **JSONL** and appended to a
-  `@convex-dev/persistent-text-streaming` stream — the source of truth for live
-  output. The initiating tab drives the stream over HTTP; a refreshed or second
-  tab reads the persisted body reactively and decodes the same JSONL. Refresh
-  mid-run and the thinking, tool calls, and answer keep streaming.
+- **Resumable streaming.** Runs are driven by an **in-process worker**
+  (fire-and-forget promise), so they survive client disconnects. The agent's AI
+  SDK UI message parts are encoded as **JSONL**: each line is published on an
+  in-memory **RunBus** (live subscribers get it instantly — the hot path never
+  touches the database) and batch-flushed to the `run_chunks` table. Clients
+  subscribe over a **tRPC SSE subscription** keyed by seq cursor: refresh
+  mid-run or open a second tab and it replays the persisted chunks, then tails
+  the bus — folding chunks **incrementally** (O(1) work per chunk).
 - **Run liveness.** Each step stamps a heartbeat and checks a stop flag; a
-  scheduled sweeper fails runs whose heartbeat goes stale. One run per thread.
+  sweeper interval fails runs whose heartbeat goes stale, and a SIGTERM drain
+  finalizes in-flight runs on deploys. One live run per thread, enforced by a
+  transactional claim plus a partial unique index.
 - **Tools.** `loadSkill`, `listTables`, `describeTable`, `runSql`,
-  `saveArtifact`. Postgres runs in a `"use node"` Convex action; credentials
-  never reach the model. `runSql` is guarded to **read-only `SELECT`/`WITH`**
-  with a statement timeout and row/size caps.
+  `saveArtifact`. Postgres runs server-side; credentials never reach the model.
+  `runSql` is guarded to **read-only `SELECT`/`WITH`** with a statement timeout
+  and row/size caps.
 - **Skills.** Provider-neutral local skills in [`agent-skills/`](./agent-skills/)
-  are bundled at build time into a registry the Convex deployment can read; the
-  TUI reads them from disk. The agent loads a skill on demand via `loadSkill`.
+  are bundled at build time into a registry; the TUI reads them from disk. The
+  agent loads a skill on demand via `loadSkill`.
 - **Observability.** Every run records model, skills version, SQL, artifacts, and
   lifecycle events (a V1 substitute for Langfuse).
 
 ## Project structure
 
 ```
-convex/                 Backend: schema, run lifecycle, HTTP action, agent loop, node Postgres
-  agent/                loop.ts (runs the agent in the stream), webDeps.ts, demo.ts
-  node/postgres.ts      "use node" Postgres actions (pg)
+src/server/             Backend: Drizzle schema/client, run lifecycle, worker, tRPC routers
+  db/                   schema.ts, client.ts (pg Pool), migrate.ts
+  trpc/                 routers (chat, threads, messages, runs, artifacts, events) + SSE stream
+  run-worker.ts         in-process agent loop (port of the old Convex action)
+  run-bus.ts            in-memory pub/sub for live chunks
+  chunk-writer.ts       RunBus publish + batched run_chunks persistence
+  sweeper.ts            stale-run finalizer + SIGTERM drain
 src/lib/
   agent/                run.ts (shared runner), tools.ts, instructions.ts, stream-parts.ts, history.ts
   models/registry.ts    OpenRouter alias registry
@@ -102,6 +111,7 @@ src/lib/
   skills/               skill source (bundled registry + disk loader)
 src/components/         Claude-like shell: sidebar, search, conversation, thinking/tool folding, artifacts
 agent-skills/           mall-domain-analysis, postgres-analysis, business-answer-style, chart-selection
+drizzle/                generated SQL migrations
 tui/                    TUI entrypoint
 evals/                  prompt set + runner
 scripts/                skill bundler, DB seeder
@@ -112,8 +122,10 @@ scripts/                skill bundler, DB seeder
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Next.js dev server (bundles skills first) |
-| `npx convex dev` | Convex backend + codegen + watch |
+| `docker compose up -d db` | Dev app Postgres (port 5433) |
 | `npm run build` | Production build |
+| `npm run db:generate` | Generate a migration from schema changes |
+| `npm run db:migrate` | Apply migrations (also happens at boot) |
 | `npm run tui` | Terminal agent loop |
 | `npm run eval` | Eval suite |
 | `npm run seed` | Seed a real Postgres with sample data |
@@ -121,7 +133,8 @@ scripts/                skill bundler, DB seeder
 
 ## V1 scope
 
-Single anonymous user (Clerk is V2). Read-only queries against the intermediate
-Postgres only — the model never touches raw business data or writes. Deferred to
-V2: auth, Langfuse tracing, durable `WorkflowAgent` jobs, a semantic layer, and a
-strict SQL policy engine. See [`docs/specs/00-product-scope.md`](./docs/specs/00-product-scope.md).
+Single anonymous user (auth is V2 — every table already carries `user_id`).
+Read-only queries against the intermediate Postgres only — the model never
+touches raw business data or writes. Deferred to V2: auth, Langfuse tracing,
+durable jobs, a semantic layer, and a strict SQL policy engine. See
+[`docs/specs/00-product-scope.md`](./docs/specs/00-product-scope.md).
