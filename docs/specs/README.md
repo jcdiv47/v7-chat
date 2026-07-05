@@ -1,7 +1,7 @@
 # Agentic Business Data Analysis App Specs
 
 Status: Draft V1  
-Last updated: 2026-07-05  
+Last updated: 2026-07-05
 Owner: scishang/v7
 
 This directory captures the product and technical specs for the V1 agentic business data analysis app.
