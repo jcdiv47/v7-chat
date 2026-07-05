@@ -32,14 +32,14 @@ import {
 } from "../../src/lib/models/registry";
 import type { AnalysisRuntimeContext, ModelAlias } from "../../src/lib/agent/types";
 
-/** Flush the pending buffer to the stream when a piece contains sentence-ish
- * punctuation — the same batching the component's own HTTP writer uses, which
- * sets the chunk granularity clients see through the subscription. */
-const hasDelimiter = (text: string) =>
-  text.includes(".") || text.includes("!") || text.includes("?");
+/** Flush the pending buffer at most this often. Every flush is an `addChunk`
+ * mutation, and each one makes the reactive `getBody` subscription re-read the
+ * whole accumulated body — total read bandwidth is quadratic in chunk count —
+ * so fewer, larger chunks matter far more than low latency here. */
+const FLUSH_INTERVAL_MS = 250;
 
-/** Don't let a punctuation-less run of deltas sit unflushed indefinitely. */
-const MAX_PENDING_CHARS = 2048;
+/** Don't let a long run of deltas grow the buffer unboundedly between flushes. */
+const MAX_PENDING_CHARS = 8192;
 
 /**
  * Entry point from the scheduled drive action. Replicates the
@@ -56,11 +56,18 @@ export async function runAgentDetached(
   if (status !== "pending") return; // already driven (duplicate schedule)
 
   let pending = "";
+  let lastFlush = Date.now();
   const append = async (text: string, flush = false) => {
     pending += text;
-    if (flush || hasDelimiter(text) || pending.length >= MAX_PENDING_CHARS) {
+    const now = Date.now();
+    if (
+      flush ||
+      now - lastFlush >= FLUSH_INTERVAL_MS ||
+      pending.length >= MAX_PENDING_CHARS
+    ) {
       await ctx.runMutation(lib.addChunk, { streamId, text: pending, final: false });
       pending = "";
+      lastFlush = now;
     }
   };
 
@@ -91,9 +98,12 @@ async function runAgentForStream(
     collected.push(trimmed);
     if (chunk.type === "tool-input-available") stats.toolCallCount += 1;
     // Structural chunks (tool rows, step/finish markers) flush immediately so
-    // live viewers see them without waiting for the next sentence delimiter;
-    // only text/reasoning deltas are batched.
-    const isDelta = chunk.type === "text-delta" || chunk.type === "reasoning-delta";
+    // live viewers see them without waiting for the flush interval; deltas
+    // (text, reasoning, tool input) are batched to keep the chunk count down.
+    const isDelta =
+      chunk.type === "text-delta" ||
+      chunk.type === "reasoning-delta" ||
+      chunk.type === "tool-input-delta";
     await append(JSON.stringify(trimmed) + "\n", !isDelta);
   };
 
