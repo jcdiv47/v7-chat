@@ -45,14 +45,22 @@ export function DataView({
 
   const columns = (artifact.payload.columns as SqlColumn[] | undefined) ?? [];
   const rows = (artifact.payload.rows as Record<string, unknown>[] | undefined) ?? [];
-  const table = (subset?: string[]) => (
-    <ResultTable
-      columns={subset ? columns.filter((c) => subset.includes(c.name)) : columns}
-      rows={rows}
-      rowCount={artifact.payload.rowCount as number | undefined}
-      truncated={artifact.payload.truncated as boolean | undefined}
-    />
-  );
+  const table = (subset?: string[]) => {
+    // The spec's `columns` is subset AND order — map the requested names
+    // through a lookup rather than filtering (which keeps result order).
+    const byName = new Map(columns.map((c) => [c.name, c]));
+    const shown = subset
+      ? subset.flatMap((name) => byName.get(name) ?? [])
+      : columns;
+    return (
+      <ResultTable
+        columns={shown}
+        rows={rows}
+        rowCount={artifact.payload.rowCount as number | undefined}
+        truncated={artifact.payload.truncated as boolean | undefined}
+      />
+    );
+  };
 
   const parsed = viewSpec.safeParse(view);
   if (!parsed.success) return table();

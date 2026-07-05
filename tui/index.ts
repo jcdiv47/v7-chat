@@ -118,7 +118,6 @@ async function main() {
   );
 
   const deps = createTuiDeps(executor, skills);
-  const tools = createAgentTools(deps);
   const instructions = buildInstructions(skills.list());
   const history: CompactTurn[] = [];
 
@@ -172,6 +171,11 @@ async function main() {
     }
 
     history.push({ role: "user", text: line });
+
+    // Per turn, not per session: createAgentTools tracks the turn's resultIds
+    // in a closure for presentData's sole-result fallback. deps stay
+    // session-scoped so getResultMeta still resolves earlier turns' ids.
+    const tools = createAgentTools(deps);
 
     const collectedText: string[] = [];
     const toolParts = new Map<string, RenderToolPart>();
