@@ -16,7 +16,7 @@ import {
   type ToolSet,
   type UIMessageChunk,
 } from "ai";
-import type { AnalysisRuntimeContext, RunEvent } from "./types";
+import type { AnalysisRuntimeContext, ReasoningEffort, RunEvent } from "./types";
 
 export type RunAgentUsage = {
   inputTokens?: number;
@@ -24,15 +24,29 @@ export type RunAgentUsage = {
   totalTokens?: number;
 };
 
+/** SDK-level timeouts: `chunkMs` catches a provider that stops sending stream
+ * chunks; `stepMs`/`totalMs` bound one LLM step and the whole run. Tool
+ * executions are bounded by the SQL executor's own statement timeout, so no
+ * per-tool timeouts here (the SDK only passes tools an abort signal — it does
+ * not race their execution). */
+export type RunAgentTimeout = {
+  totalMs?: number;
+  stepMs?: number;
+  chunkMs?: number;
+};
+
 export type RunAgentOptions = {
   model: LanguageModel;
   temperature?: number;
   maxOutputTokens?: number;
+  /** Reasoning effort forwarded as the AI SDK top-level `reasoning` option. */
+  reasoning?: ReasoningEffort;
   instructions: string;
   messages: ModelMessage[];
   tools: ToolSet;
   /** Max tool-loop steps (spec: 8–12 for interactive chat). */
   maxSteps: number;
+  timeout?: RunAgentTimeout;
   runtimeContext: AnalysisRuntimeContext;
   abortSignal?: AbortSignal;
   /** Called for every UI message chunk (serialize to the stream / print). */
@@ -95,6 +109,18 @@ async function settle<T>(p: PromiseLike<T>): Promise<T | undefined> {
   }
 }
 
+function addTokens(a?: number, b?: number): number | undefined {
+  return a == null && b == null ? undefined : (a ?? 0) + (b ?? 0);
+}
+
+/** Appended to the system instructions on the final allowed step (tools are
+ * disabled for that step) so the run ends with an answer instead of a
+ * mid-investigation tool call cut off by the step limit. */
+const FINAL_STEP_NOTICE =
+  "\n\nThis is your final step: tools are no longer available. Give your best " +
+  "final answer now, based on the results you have already gathered. If the " +
+  "analysis is incomplete, say what is known so far and what remains open.";
+
 export async function runAnalysisAgent(
   opts: RunAgentOptions,
 ): Promise<RunAgentResult> {
@@ -109,6 +135,10 @@ export async function runAnalysisAgent(
 
   let aborted = false;
   let errorText: string | undefined;
+  // Accumulated across onStepEnd callbacks so usage and step counts survive a
+  // run that errors mid-way (the aggregate result promises reject in that case).
+  let stepsCompleted = 0;
+  let accUsage: RunAgentUsage | undefined;
 
   const agent = new ToolLoopAgent({
     model: opts.model,
@@ -116,14 +146,19 @@ export async function runAnalysisAgent(
     tools: opts.tools,
     temperature: opts.temperature,
     maxOutputTokens: opts.maxOutputTokens,
+    reasoning: opts.reasoning,
+    timeout: opts.timeout,
     stopWhen: stepCountIs(opts.maxSteps),
     experimental_repairToolCall: repairTruncatedToolCall,
     runtimeContext: opts.runtimeContext as Record<string, unknown>,
     prepareStep: async ({ stepNumber }) => {
+      // stepNumber is zero-based; the last allowed step gets no tools plus a
+      // wrap-up notice, forcing a final answer instead of a truncated tool loop.
+      const finalStep = stepNumber >= opts.maxSteps - 1;
       await opts.onEvent?.({
         type: "step.started",
         createdAt: Date.now(),
-        metadata: { stepNumber },
+        metadata: finalStep ? { stepNumber, forcedFinal: true } : { stepNumber },
       });
       if (opts.beforeStep) {
         const shouldContinue = await opts.beforeStep(stepNumber);
@@ -132,7 +167,54 @@ export async function runAnalysisAgent(
           controller.abort();
         }
       }
+      if (finalStep) {
+        return {
+          activeTools: [],
+          instructions: opts.instructions + FINAL_STEP_NOTICE,
+        };
+      }
       return undefined;
+    },
+    onToolExecutionStart: async ({ toolCall }) => {
+      await opts.onEvent?.({
+        type: "tool.started",
+        createdAt: Date.now(),
+        metadata: { toolName: toolCall.toolName, toolCallId: toolCall.toolCallId },
+      });
+    },
+    onToolExecutionEnd: async ({ toolCall, toolOutput, toolExecutionMs }) => {
+      await opts.onEvent?.({
+        type: "tool.finished",
+        createdAt: Date.now(),
+        metadata: {
+          toolName: toolCall.toolName,
+          toolCallId: toolCall.toolCallId,
+          toolExecutionMs,
+          error:
+            toolOutput.type === "tool-error" ? errText(toolOutput.error) : undefined,
+        },
+      });
+    },
+    onStepEnd: async (step) => {
+      stepsCompleted += 1;
+      accUsage = {
+        inputTokens: addTokens(accUsage?.inputTokens, step.usage.inputTokens),
+        outputTokens: addTokens(accUsage?.outputTokens, step.usage.outputTokens),
+        totalTokens: addTokens(accUsage?.totalTokens, step.usage.totalTokens),
+      };
+      await opts.onEvent?.({
+        type: "step.finished",
+        createdAt: Date.now(),
+        metadata: {
+          stepNumber: step.stepNumber,
+          finishReason: step.finishReason,
+          usage: step.usage,
+          stepTimeMs: step.performance.stepTimeMs,
+          responseTimeMs: step.performance.responseTimeMs,
+          outputTokensPerSecond: step.performance.outputTokensPerSecond,
+          warnings: step.warnings?.length ? step.warnings : undefined,
+        },
+      });
     },
   });
 
@@ -159,37 +241,15 @@ export async function runAnalysisAgent(
     while (true) {
       const { done, value: chunk } = await reader.read();
       if (done) break;
-      switch (chunk.type) {
-        case "tool-input-available":
-          await opts.onEvent?.({
-            type: "tool.started",
-            createdAt: Date.now(),
-            metadata: { toolName: chunk.toolName, toolCallId: chunk.toolCallId },
-          });
-          break;
-        case "tool-output-available":
-          await opts.onEvent?.({
-            type: "tool.finished",
-            createdAt: Date.now(),
-            metadata: { toolCallId: chunk.toolCallId },
-          });
-          break;
-        case "tool-output-error":
-          await opts.onEvent?.({
-            type: "tool.finished",
-            createdAt: Date.now(),
-            metadata: { toolCallId: chunk.toolCallId, error: chunk.errorText },
-          });
-          break;
-        case "tool-input-error":
-          await opts.onEvent?.({
-            type: "tool.finished",
-            createdAt: Date.now(),
-            metadata: { toolCallId: chunk.toolCallId, error: chunk.errorText },
-          });
-          break;
-        default:
-          break;
+      // Tool start/finish events come from the agent lifecycle callbacks —
+      // except invalid tool inputs, which never reach execution, so the only
+      // trace of them is this stream chunk.
+      if (chunk.type === "tool-input-error") {
+        await opts.onEvent?.({
+          type: "tool.finished",
+          createdAt: Date.now(),
+          metadata: { toolCallId: chunk.toolCallId, error: chunk.errorText },
+        });
       }
       await opts.onChunk(chunk);
     }
@@ -204,8 +264,10 @@ export async function runAnalysisAgent(
   }
 
   const finishReason = (await settle(result.finishReason)) ?? (aborted ? "abort" : "unknown");
-  const rawUsage = (await settle(result.usage)) as RunAgentUsage | undefined;
-  const steps = (await settle(result.steps))?.length ?? 0;
+  // Fall back to the per-step accumulation when the aggregate promises reject
+  // (aborted/failed runs), so partial usage still lands in the run record.
+  const rawUsage = ((await settle(result.usage)) as RunAgentUsage | undefined) ?? accUsage;
+  const steps = (await settle(result.steps))?.length ?? stepsCompleted;
 
   return {
     finishReason: String(finishReason),

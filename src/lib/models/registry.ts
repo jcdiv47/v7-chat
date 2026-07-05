@@ -10,7 +10,7 @@
  */
 import type { LanguageModel } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import type { ModelAlias } from "../agent/types";
+import type { ModelAlias, ReasoningEffort } from "../agent/types";
 
 export const modelAliases = [
   "fast",
@@ -27,6 +27,11 @@ export type ModelDef = {
   modelId: string;
   temperature: number;
   maxOutputTokens: number;
+  /** Reasoning effort passed as the AI SDK top-level `reasoning` option
+   * (→ `reasoning_effort` on OpenRouter). Note the openai-compatible provider
+   * only forwards minimal/low/medium/high/xhigh; "none" and "provider-default"
+   * send nothing, i.e. the provider's default applies. */
+  reasoning?: ReasoningEffort;
   /** Optional cost metadata (USD per 1M tokens) for run cost estimation. */
   cost?: { inputPerMTokens?: number; outputPerMTokens?: number };
 };
@@ -36,6 +41,28 @@ const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 function env(name: string): string | undefined {
   const value = process.env[name];
   return value && value.length > 0 ? value : undefined;
+}
+
+const REASONING_EFFORTS: readonly ReasoningEffort[] = [
+  "provider-default",
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+];
+
+function envReasoning(name: string, fallback: ReasoningEffort): ReasoningEffort {
+  const value = env(name);
+  if (!value) return fallback;
+  if ((REASONING_EFFORTS as readonly string[]).includes(value)) {
+    return value as ReasoningEffort;
+  }
+  console.warn(
+    `[models] Ignoring ${name}="${value}" — expected one of: ${REASONING_EFFORTS.join(", ")}.`,
+  );
+  return fallback;
 }
 
 /**
@@ -51,6 +78,7 @@ function buildRegistry(): Record<ModelAlias, ModelDef> {
       modelId: env("MODEL_FAST") ?? "openai/gpt-oss-120b:nitro",
       temperature: 0.7,
       maxOutputTokens: 2048,
+      reasoning: envReasoning("MODEL_FAST_REASONING", "low"),
     },
     analyst: {
       alias: "analyst",
@@ -58,6 +86,7 @@ function buildRegistry(): Record<ModelAlias, ModelDef> {
       modelId: env("MODEL_ANALYST") ?? "z-ai/glm-5.2:nitro",
       temperature: 0.7,
       maxOutputTokens: 4096,
+      reasoning: envReasoning("MODEL_ANALYST_REASONING", "medium"),
     },
     sql: {
       alias: "sql",
@@ -65,6 +94,7 @@ function buildRegistry(): Record<ModelAlias, ModelDef> {
       modelId: env("MODEL_SQL") ?? "z-ai/glm-5.2:nitro",
       temperature: 0.5,
       maxOutputTokens: 2048,
+      reasoning: envReasoning("MODEL_SQL_REASONING", "medium"),
     },
     summarizer: {
       alias: "summarizer",
@@ -72,6 +102,7 @@ function buildRegistry(): Record<ModelAlias, ModelDef> {
       modelId: env("MODEL_SUMMARIZER") ?? "openai/gpt-oss-120b:nitro",
       temperature: 0.7,
       maxOutputTokens: 1024,
+      reasoning: envReasoning("MODEL_SUMMARIZER_REASONING", "low"),
     },
   };
 }

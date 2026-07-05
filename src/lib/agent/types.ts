@@ -6,6 +6,17 @@
 
 export type ModelAlias = "fast" | "analyst" | "sql" | "summarizer";
 
+/** Reasoning effort levels accepted by the AI SDK's top-level `reasoning`
+ * call option (mapped to `reasoning_effort` by the OpenAI-compatible provider). */
+export type ReasoningEffort =
+  | "provider-default"
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
 export type ArtifactType = "sql" | "table" | "chartSpec" | "finding" | "error";
 
 /** A column descriptor returned from a SQL query. */
@@ -97,6 +108,7 @@ export type AgentToolDeps = {
 export type RunEventType =
   | "run.started"
   | "step.started"
+  | "step.finished"
   | "tool.started"
   | "tool.finished"
   | "sql.executed"

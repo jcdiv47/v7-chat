@@ -121,7 +121,7 @@ async function main() {
       if (c.type === "text-delta") textParts.push(c.delta);
     };
     try {
-      await runAnalysisAgent({ model: getModel("analyst"), temperature: def.temperature, maxOutputTokens: def.maxOutputTokens, instructions: buildInstructions(skills.list()), messages: [{ role: "user", content: p.prompt }], tools, maxSteps: 12, runtimeContext: rc, onChunk });
+      await runAnalysisAgent({ model: getModel("analyst"), temperature: def.temperature, maxOutputTokens: def.maxOutputTokens, reasoning: def.reasoning, instructions: buildInstructions(skills.list()), messages: [{ role: "user", content: p.prompt }], tools, maxSteps: 12, runtimeContext: rc, onChunk });
       cap.answer = textParts.join("");
     } catch (err) {
       cap.answer = `ERROR: ${err instanceof Error ? err.message : String(err)}`;

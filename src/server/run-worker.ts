@@ -28,7 +28,7 @@ import {
   resolveModelDef,
 } from "../lib/models/registry";
 import type { AnalysisRuntimeContext, ModelAlias } from "../lib/agent/types";
-import { MAX_STEPS } from "./constants";
+import { MAX_STEPS, RUN_TIMEOUTS } from "./constants";
 import { createChunkWriter } from "./chunk-writer";
 import { getDb } from "./db/client";
 import { runs } from "./db/schema";
@@ -158,10 +158,12 @@ async function driveRun(runId: string, abortSignal: AbortSignal): Promise<void> 
         model: getModel(alias),
         temperature: def.temperature,
         maxOutputTokens: def.maxOutputTokens,
+        reasoning: def.reasoning,
         instructions: buildInstructions(skills),
         messages,
         tools: createAgentTools(deps),
         maxSteps: MAX_STEPS,
+        timeout: RUN_TIMEOUTS,
         runtimeContext,
         abortSignal,
         onChunk,

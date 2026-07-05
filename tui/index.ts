@@ -237,6 +237,7 @@ async function main() {
         model: getModel(alias),
         temperature: def.temperature,
         maxOutputTokens: def.maxOutputTokens,
+        reasoning: def.reasoning,
         instructions,
         messages: buildModelMessages(history),
         tools,
