@@ -73,12 +73,24 @@ export function Conversation({
   const activeRunId = running ? latestRun?.id : undefined;
   const { reduced, streamStatus } = useRunStream(activeRunId);
 
-  // The stream folding a terminal chunk is the low-latency completion signal;
-  // the latestRun poll is the backstop (stop/reclaim without a terminal line).
+  // The stream folding a terminal chunk is the low-latency completion signal,
+  // but it can race ahead of finishRun() storing the assistant message, and
+  // failure/cancel paths may never emit a terminal chunk at all.
   useEffect(() => {
     if (reduced.finished) refreshThread();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshThread is stable in practice
   }, [reduced.finished]);
+
+  // Backstop: refresh when the run leaves "running". latestForThread only
+  // reports a terminal status after the finishRun transaction that stored the
+  // assistant message committed, so this refetch can't miss it — it covers
+  // the finished-edge race above, terminal-chunk-less failures, and reclaims.
+  const wasRunning = useRef(running);
+  useEffect(() => {
+    if (wasRunning.current && !running) refreshThread();
+    wasRunning.current = running;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshThread is stable in practice
+  }, [running]);
 
   // Auto-scroll handling.
   const scrollRef = useRef<HTMLDivElement>(null);
