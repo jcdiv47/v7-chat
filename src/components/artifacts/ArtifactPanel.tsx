@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "convex/react";
 import { Bug, X } from "lucide-react";
-import { api, type Doc, type Id } from "@/lib/convexApi";
+import { trpc, type ArtifactItem } from "@/lib/trpc";
 import type { ChartSpec } from "@/lib/agent/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CodeBlock } from "@/components/chat/CodeBlock";
@@ -11,21 +10,32 @@ import { Markdown } from "@/components/chat/Markdown";
 import { Chart } from "./Chart";
 import { ResultTable } from "./ResultTable";
 
-type Artifact = Doc<"artifacts">;
+type Artifact = ArtifactItem;
 
 export function ArtifactPanel({
   runId,
   onClose,
 }: {
-  runId: Id<"runs">;
+  runId: string;
   onClose: () => void;
 }) {
-  const artifacts = (useQuery(api.artifacts.listForRun, { runId }) ?? []) as Artifact[];
-  const run = useQuery(api.runs.get, { runId });
-  const events = useQuery(api.events.listForRun, { runId }) ?? [];
-  const answer = useQuery(
-    api.messages.get,
-    run?.assistantMessageId ? { messageId: run.assistantMessageId } : "skip",
+  const { data: run } = trpc.runs.get.useQuery(
+    { runId },
+    {
+      refetchInterval: (query) =>
+        query.state.data?.status === "running" ? 3000 : false,
+    },
+  );
+  // Refresh panel data while the run is still producing artifacts/events.
+  const live = run?.status === "running";
+  const refetchInterval = live ? 3000 : false;
+  const artifacts =
+    trpc.artifacts.listForRun.useQuery({ runId }, { refetchInterval }).data ?? [];
+  const events =
+    trpc.events.listForRun.useQuery({ runId }, { refetchInterval }).data ?? [];
+  const { data: answer } = trpc.messages.get.useQuery(
+    { messageId: run?.assistantMessageId ?? "" },
+    { enabled: Boolean(run?.assistantMessageId) },
   );
   const [showDev, setShowDev] = useState(false);
 
@@ -94,10 +104,10 @@ export function ArtifactPanel({
             ) : (
               <>
                 {sql.map((a) => (
-                  <CodeBlock key={a._id} code={String(a.payload.sql ?? "")} language="sql" className="my-0" />
+                  <CodeBlock key={a.id} code={String(a.payload.sql ?? "")} language="sql" className="my-0" />
                 ))}
                 {errors.map((a) => (
-                  <div key={a._id} className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                  <div key={a.id} className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
                     <CodeBlock code={String(a.payload.sql ?? "")} language="sql" className="my-0" />
                     <p className="mt-2 text-[13px] text-destructive">{String(a.payload.error ?? "")}</p>
                   </div>
@@ -111,7 +121,7 @@ export function ArtifactPanel({
               <Empty label="No result tables." />
             ) : (
               tables.map((a) => (
-                <div key={a._id}>
+                <div key={a.id}>
                   <div className="mb-2 text-xs font-medium text-muted-foreground">{a.title}</div>
                   <ResultTable
                     columns={(a.payload.columns as { name: string }[]) ?? []}
@@ -131,7 +141,7 @@ export function ArtifactPanel({
               charts.map((a) => {
                 const spec = a.payload as unknown as ChartSpec;
                 const rows = rowsForChart(spec, tables);
-                return <Chart key={a._id} spec={spec} rows={rows} />;
+                return <Chart key={a.id} spec={spec} rows={rows} />;
               })
             )}
           </TabsContent>
@@ -139,7 +149,7 @@ export function ArtifactPanel({
           {showDev && (
             <TabsContent value="events" className="space-y-1">
               {events.map((e) => (
-                <div key={e._id} className="rounded border border-border/60 px-2 py-1 font-mono text-[11px]">
+                <div key={e.id} className="rounded border border-border/60 px-2 py-1 font-mono text-[11px]">
                   <span className="text-muted-foreground">
                     {new Date(e.createdAt).toLocaleTimeString()}{" "}
                   </span>

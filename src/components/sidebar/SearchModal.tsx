@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
+import { useEffect, useRef, useState } from "react";
 import { CornerDownLeft, MessageSquare, Search } from "lucide-react";
-import { api, type Doc, type Id } from "@/lib/convexApi";
+import { trpc, type ThreadSummary } from "@/lib/trpc";
 import { cn, recencyBucket, recencyLabels } from "@/lib/utils";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
-type Thread = Pick<Doc<"threads">, "_id" | "title" | "pinned" | "updatedAt" | "createdAt">;
+type Thread = ThreadSummary;
 
-/** Command-palette search over sessions. Fuzzy-ish (subsequence) match on title;
- * empty query shows recents. Full keyboard control. */
+/** Command-palette search over sessions. SQL ILIKE match on title (tsvector is
+ * the upgrade path); empty query shows recents. Full keyboard control. */
 export function SearchModal({
   open,
   onOpenChange,
@@ -18,20 +17,21 @@ export function SearchModal({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelect: (id: Id<"threads">) => void;
+  onSelect: (id: string) => void;
 }) {
-  const threads = (useQuery(api.threads.list) ?? []) as Thread[];
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return threads.slice(0, 12);
-    return threads
-      .filter((t) => subsequence(q, t.title.toLowerCase()))
-      .slice(0, 20);
-  }, [query, threads]);
+  const q = query.trim();
+  const recents = trpc.threads.list.useQuery(undefined, { enabled: open });
+  const found = trpc.threads.search.useQuery(
+    { query: q },
+    { enabled: open && q.length > 0, placeholderData: (prev) => prev },
+  );
+  const results: Thread[] = q
+    ? (found.data ?? [])
+    : (recents.data ?? []).slice(0, 12);
 
   useEffect(() => setIndex(0), [query]);
   useEffect(() => {
@@ -43,7 +43,7 @@ export function SearchModal({
   }, [open]);
 
   const choose = (t: Thread) => {
-    onSelect(t._id);
+    onSelect(t.id);
     onOpenChange(false);
   };
 
@@ -83,7 +83,7 @@ export function SearchModal({
           ) : (
             results.map((t, i) => (
               <button
-                key={t._id}
+                key={t.id}
                 onMouseEnter={() => setIndex(i)}
                 onClick={() => choose(t)}
                 className={cn(
@@ -106,14 +106,4 @@ export function SearchModal({
       </DialogContent>
     </Dialog>
   );
-}
-
-/** True if `needle` is a subsequence of `haystack` (loose fuzzy match). */
-function subsequence(needle: string, haystack: string): boolean {
-  if (haystack.includes(needle)) return true;
-  let i = 0;
-  for (let j = 0; j < haystack.length && i < needle.length; j++) {
-    if (haystack[j] === needle[i]) i++;
-  }
-  return i === needle.length;
 }

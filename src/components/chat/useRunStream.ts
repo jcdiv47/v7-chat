@@ -1,47 +1,65 @@
 "use client";
 
-import { useMemo } from "react";
-import { useStream } from "@convex-dev/persistent-text-streaming/react";
-import type { StreamId } from "@convex-dev/persistent-text-streaming";
-import { api } from "@/lib/convexApi";
+import { useRef, useState } from "react";
+import type { UIMessageChunk } from "ai";
+import { trpc } from "@/lib/trpc";
 import {
-  parseStreamBody,
-  reduceChunks,
+  createStreamReducer,
   type ReducedMessage,
+  type StreamReducer,
 } from "@/lib/agent/stream-parts";
 
-function siteUrl(): string {
-  const explicit = process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
-  if (explicit) return explicit;
-  const cloud = process.env.NEXT_PUBLIC_CONVEX_URL ?? "";
-  return cloud.replace(".convex.cloud", ".convex.site");
-}
+const EMPTY: ReducedMessage = { parts: [], finished: false, aborted: false };
 
 export type RunStream = {
   reduced: ReducedMessage;
-  /** persistent-text-streaming status: pending | streaming | done | error | timeout. */
-  streamStatus: "pending" | "streaming" | "done" | "error" | "timeout";
+  streamStatus: "streaming" | "done" | "error";
 };
 
 /**
- * Subscribe to a run's persisted stream. Runs are driven server-side by a
- * scheduled action (see convex/agent/drive.ts), so every tab — initiating,
- * refreshed, or second — reads the persisted body reactively (never `driven`).
- * JSONL is decoded and folded into render parts identically everywhere.
- * See docs/specs/05 → AI SDK UI Integration.
+ * Subscribe to a run's live output over the tRPC SSE subscription. Runs are
+ * driven server-side by the in-process worker, so every tab — initiating,
+ * refreshed, or second — replays persisted chunks and tails the RunBus through
+ * the same cursor-based stream. Each SSE event carries a batch of JSONL lines
+ * folded incrementally into the render view model: O(1) work per chunk, never
+ * a whole-body re-reduce. See docs/specs/05 & 11.
  */
-export function useRunStream(streamId: string | undefined): RunStream {
-  // `useStream` requires a stream URL for its driven mode; we never drive.
-  const streamUrl = useMemo(() => new URL(`${siteUrl()}/chat`), []);
-  const body = useStream(
-    api.stream.getBody,
-    streamUrl,
-    false,
-    streamId as StreamId | undefined,
+export function useRunStream(runId: string | undefined): RunStream {
+  const reducerRef = useRef<StreamReducer | null>(null);
+  const [reduced, setReduced] = useState<ReducedMessage>(EMPTY);
+  const [errored, setErrored] = useState(false);
+
+  // Reset reducer state synchronously when the run changes (render-time
+  // derived-state adjustment, so no stale parts flash between runs).
+  const [prevRunId, setPrevRunId] = useState(runId);
+  if (prevRunId !== runId) {
+    setPrevRunId(runId);
+    reducerRef.current = null;
+    setReduced(EMPTY);
+    setErrored(false);
+  }
+
+  trpc.runs.stream.useSubscription(
+    { runId: runId ?? "", lastEventId: null },
+    {
+      enabled: Boolean(runId),
+      onData: (event) => {
+        const reducer = (reducerRef.current ??= createStreamReducer());
+        for (const line of event.data) {
+          try {
+            reducer.fold(JSON.parse(line) as UIMessageChunk);
+          } catch {
+            // Skip a corrupt line; rendering the rest beats dropping the run.
+          }
+        }
+        setReduced(reducer.snapshot());
+      },
+      onError: () => setErrored(true),
+    },
   );
-  const reduced = useMemo(
-    () => reduceChunks(parseStreamBody(body.text)),
-    [body.text],
-  );
-  return { reduced, streamStatus: body.status };
+
+  return {
+    reduced,
+    streamStatus: errored ? "error" : reduced.finished ? "done" : "streaming",
+  };
 }

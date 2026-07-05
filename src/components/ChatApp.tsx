@@ -2,25 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "convex/react";
 import { PanelLeft, PanelRight, Search } from "lucide-react";
-import { api, type Id } from "@/lib/convexApi";
+import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { SearchModal } from "@/components/sidebar/SearchModal";
 import { Conversation } from "@/components/chat/Conversation";
 import { ArtifactPanel } from "@/components/artifacts/ArtifactPanel";
 
-export function ChatApp({ threadId }: { threadId?: Id<"threads"> }) {
+export function ChatApp({ threadId }: { threadId?: string }) {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [artifactRunId, setArtifactRunId] = useState<Id<"runs"> | null>(null);
+  const [artifactRunId, setArtifactRunId] = useState<string | null>(null);
 
-  const thread = useQuery(api.threads.get, threadId ? { threadId } : "skip");
-  const latestRun = useQuery(
-    api.runs.latestForThread,
-    threadId ? { threadId } : "skip",
+  const { data: thread } = trpc.threads.get.useQuery(
+    { threadId: threadId ?? "" },
+    { enabled: Boolean(threadId) },
+  );
+  const { data: latestRun } = trpc.runs.latestForThread.useQuery(
+    { threadId: threadId ?? "" },
+    { enabled: Boolean(threadId) },
   );
 
   // Reset the artifact panel when switching threads.
@@ -37,7 +39,7 @@ export function ChatApp({ threadId }: { threadId?: Id<"threads"> }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const navigate = (id: Id<"threads">) => {
+  const navigate = (id: string) => {
     router.push(`/c/${id}`);
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
@@ -46,7 +48,7 @@ export function ChatApp({ threadId }: { threadId?: Id<"threads"> }) {
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
   const openThreadArtifacts = () => {
-    if (latestRun) setArtifactRunId(latestRun._id);
+    if (latestRun) setArtifactRunId(latestRun.id);
   };
 
   return (

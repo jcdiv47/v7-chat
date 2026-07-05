@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
 import { ArrowDown, Copy, Pencil, RotateCcw, X } from "lucide-react";
-import { api, type Id } from "@/lib/convexApi";
+import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import type { RenderPart } from "@/lib/agent/stream-parts";
 import { AssistantTurn } from "./AssistantTurn";
@@ -24,24 +23,41 @@ export function Conversation({
   threadId,
   onThreadCreated,
 }: {
-  threadId: Id<"threads"> | undefined;
-  onThreadCreated: (id: Id<"threads">) => void;
+  threadId: string | undefined;
+  onThreadCreated: (id: string) => void;
 }) {
-  const messages = useQuery(api.messages.list, threadId ? { threadId } : "skip");
-  const latestRun = useQuery(
-    api.runs.latestForThread,
-    threadId ? { threadId } : "skip",
+  const utils = trpc.useUtils();
+  const { data: messages } = trpc.messages.list.useQuery(
+    { threadId: threadId ?? "" },
+    { enabled: Boolean(threadId) },
   );
-  const sendMessage = useMutation(api.chat.sendMessage);
-  const retryLast = useMutation(api.chat.retryLast);
-  const editAndRerun = useMutation(api.chat.editAndRerun);
-  const requestStop = useMutation(api.runs.requestStop);
+  const { data: latestRun } = trpc.runs.latestForThread.useQuery(
+    { threadId: threadId ?? "" },
+    {
+      enabled: Boolean(threadId),
+      // Poll while a run is live: covers heartbeat display, stop/reclaim by
+      // the server, and acts as the backstop for missed invalidations.
+      refetchInterval: (query) =>
+        query.state.data?.status === "running" ? 2000 : false,
+    },
+  );
+  const sendMessage = trpc.chat.send.useMutation();
+  const retryLast = trpc.chat.retry.useMutation();
+  const editAndRerun = trpc.chat.editAndRerun.useMutation();
+  const requestStop = trpc.runs.stop.useMutation();
+
+  /** Refresh everything a finished or newly created run can have changed. */
+  const refreshThread = () => {
+    void utils.runs.latestForThread.invalidate();
+    void utils.messages.list.invalidate();
+    void utils.threads.list.invalidate();
+  };
 
   const [modelAlias, setModelAlias] = useState<ModelAlias>("analyst");
   /** One message queued while a run is live, scoped to the thread it was queued
    * for so it never dispatches into a different conversation. */
   const [queued, setQueued] = useState<{
-    threadId: Id<"threads">;
+    threadId: string;
     text: string;
     failed?: boolean;
   } | null>(null);
@@ -54,8 +70,15 @@ export function Conversation({
     now - latestRun.heartbeatAt > latestRun.staleThresholdMs;
   const liveStreaming = Boolean(running && !stale);
 
-  const activeStreamId = running ? latestRun?.streamId : undefined;
-  const { reduced, streamStatus } = useRunStream(activeStreamId);
+  const activeRunId = running ? latestRun?.id : undefined;
+  const { reduced, streamStatus } = useRunStream(activeRunId);
+
+  // The stream folding a terminal chunk is the low-latency completion signal;
+  // the latestRun poll is the backstop (stop/reclaim without a terminal line).
+  useEffect(() => {
+    if (reduced.finished) refreshThread();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refreshThread is stable in practice
+  }, [reduced.finished]);
 
   // Auto-scroll handling.
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -74,16 +97,17 @@ export function Conversation({
   };
 
   const startRun = async (text: string) => {
-    const res = await sendMessage({
+    const res = await sendMessage.mutateAsync({
       threadId: threadId ?? undefined,
       text,
       modelAlias,
     });
     setAtBottom(true);
+    refreshThread();
     if (!threadId) onThreadCreated(res.threadId);
   };
 
-  const enqueue = (threadId: Id<"threads">, text: string) =>
+  const enqueue = (threadId: string, text: string) =>
     setQueued((q) => ({
       threadId,
       text:
@@ -132,17 +156,24 @@ export function Conversation({
   // model the original turn used, instead of the composer's (reset) selection.
   const handleRetry = async () => {
     if (!threadId) return;
-    await retryLast({ threadId });
+    await retryLast.mutateAsync({ threadId });
     setAtBottom(true);
+    refreshThread();
   };
 
-  const handleEdit = async (messageId: Id<"messages">, text: string) => {
-    await editAndRerun({ messageId, text });
+  const handleEdit = async (messageId: string, text: string) => {
+    await editAndRerun.mutateAsync({ messageId, text });
     setAtBottom(true);
+    refreshThread();
   };
 
   const handleStop = () => {
-    if (latestRun) requestStop({ runId: latestRun._id });
+    if (latestRun) {
+      requestStop.mutate(
+        { runId: latestRun.id },
+        { onSuccess: () => void utils.runs.latestForThread.invalidate() },
+      );
+    }
   };
 
   const isEmpty = threadId == null || (messages && messages.length === 0);
@@ -170,16 +201,20 @@ export function Conversation({
             {messages?.map((m) =>
               m.role === "user" ? (
                 <UserBubble
-                  key={m._id}
+                  key={m.id}
                   text={m.text}
                   canEdit={!running}
-                  onEdit={(text) => handleEdit(m._id, text)}
+                  onEdit={(text) => handleEdit(m.id, text)}
                 />
-              ) : (
+              ) : // While latestRun still reads "running", the just-stored
+              // assistant message for that run may already be in messages
+              // (queries refetch independently) — the live stream block below
+              // renders it, so skip the stored copy to avoid a duplicate.
+              running && m.runId === latestRun?.id ? null : (
                 <AssistantMessage
-                  key={m._id}
+                  key={m.id}
                   parts={(m.parts as RenderPart[] | undefined) ?? textToParts(m.text)}
-                  durationMs={m.durationMs}
+                  durationMs={m.durationMs ?? undefined}
                   failed={m.status === "failed"}
                   text={m.text}
                 />

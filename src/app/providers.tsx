@@ -1,18 +1,36 @@
 "use client";
 
-import { ConvexProvider, ConvexReactClient } from "convex/react";
-import { type ReactNode, useMemo } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { httpBatchLink, httpSubscriptionLink, splitLink } from "@trpc/client";
+import { type ReactNode, useState } from "react";
+import { trpc } from "@/lib/trpc";
 
 export function Providers({ children }: { children: ReactNode }) {
-  const client = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_CONVEX_URL;
-    if (!url) {
-      throw new Error(
-        "NEXT_PUBLIC_CONVEX_URL is not set. Run `npx convex dev` to configure the deployment.",
-      );
-    }
-    return new ConvexReactClient(url);
-  }, []);
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: { staleTime: 5_000, retry: 1, refetchOnWindowFocus: false },
+        },
+      }),
+  );
+  const [trpcClient] = useState(() =>
+    trpc.createClient({
+      links: [
+        splitLink({
+          // The run stream rides SSE (auto-reconnect resumes via the seq
+          // event id); everything else is plain HTTP.
+          condition: (op) => op.type === "subscription",
+          true: httpSubscriptionLink({ url: "/api/trpc" }),
+          false: httpBatchLink({ url: "/api/trpc" }),
+        }),
+      ],
+    }),
+  );
 
-  return <ConvexProvider client={client}>{children}</ConvexProvider>;
+  return (
+    <trpc.Provider client={trpcClient} queryClient={queryClient}>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </trpc.Provider>
+  );
 }

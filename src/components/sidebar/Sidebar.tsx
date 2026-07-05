@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQuery } from "convex/react";
 import {
   BarChart3,
   FolderClosed,
@@ -17,7 +16,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { api, type Doc, type Id } from "@/lib/convexApi";
+import { trpc, type ThreadSummary } from "@/lib/trpc";
 import { cn, recencyBucket, recencyLabels } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -28,7 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-type Thread = Pick<Doc<"threads">, "_id" | "title" | "pinned" | "updatedAt" | "createdAt">;
+type Thread = ThreadSummary;
 
 export function Sidebar({
   activeThreadId,
@@ -38,14 +37,14 @@ export function Sidebar({
   onOpenArtifacts,
   onCollapse,
 }: {
-  activeThreadId: Id<"threads"> | undefined;
-  onNavigate: (id: Id<"threads">) => void;
+  activeThreadId: string | undefined;
+  onNavigate: (id: string) => void;
   onNewChat: () => void;
   onOpenSearch: () => void;
   onOpenArtifacts: () => void;
   onCollapse: () => void;
 }) {
-  const threads = (useQuery(api.threads.list) ?? []) as Thread[];
+  const threads = trpc.threads.list.useQuery().data ?? [];
   const pinned = threads.filter((t) => t.pinned);
   const recents = threads.filter((t) => !t.pinned);
 
@@ -107,9 +106,9 @@ export function Sidebar({
           <Section label="Pinned">
             {pinned.map((t) => (
               <ThreadRow
-                key={t._id}
+                key={t.id}
                 thread={t}
-                active={t._id === activeThreadId}
+                active={t.id === activeThreadId}
                 onNavigate={onNavigate}
                 onActiveDeleted={onNewChat}
               />
@@ -121,9 +120,9 @@ export function Sidebar({
             <Section key={b} label={recencyLabels[b]}>
               {buckets[b].map((t) => (
                 <ThreadRow
-                  key={t._id}
+                  key={t.id}
                   thread={t}
-                  active={t._id === activeThreadId}
+                  active={t.id === activeThreadId}
                   onNavigate={onNavigate}
                   onActiveDeleted={onNewChat}
                 />
@@ -172,12 +171,14 @@ function ThreadRow({
 }: {
   thread: Thread;
   active: boolean;
-  onNavigate: (id: Id<"threads">) => void;
+  onNavigate: (id: string) => void;
   onActiveDeleted: () => void;
 }) {
-  const setPinned = useMutation(api.threads.setPinned);
-  const rename = useMutation(api.threads.rename);
-  const remove = useMutation(api.threads.remove);
+  const utils = trpc.useUtils();
+  const invalidate = { onSuccess: () => void utils.threads.invalidate() };
+  const setPinned = trpc.threads.setPinned.useMutation(invalidate);
+  const rename = trpc.threads.rename.useMutation(invalidate);
+  const remove = trpc.threads.remove.useMutation(invalidate);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(thread.title);
 
@@ -190,7 +191,7 @@ function ThreadRow({
         onBlur={() => {
           setEditing(false);
           if (draft.trim() && draft !== thread.title)
-            rename({ threadId: thread._id, title: draft });
+            rename.mutate({ threadId: thread.id, title: draft });
         }}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return;
@@ -213,7 +214,7 @@ function ThreadRow({
       )}
     >
       <button
-        onClick={() => onNavigate(thread._id)}
+        onClick={() => onNavigate(thread.id)}
         className="flex-1 truncate px-2 py-1.5 text-left text-sm"
         title={thread.title}
       >
@@ -232,7 +233,9 @@ function ThreadRow({
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem onClick={() => setPinned({ threadId: thread._id, pinned: !thread.pinned })}>
+          <DropdownMenuItem
+            onClick={() => setPinned.mutate({ threadId: thread.id, pinned: !thread.pinned })}
+          >
             {thread.pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
             {thread.pinned ? "Unpin" : "Pin"}
           </DropdownMenuItem>
@@ -251,7 +254,7 @@ function ThreadRow({
               if (!window.confirm(`Delete "${thread.title}"? This cannot be undone.`)) {
                 return;
               }
-              void remove({ threadId: thread._id });
+              remove.mutate({ threadId: thread.id });
               // Leave the deleted thread's route so the app doesn't strand on
               // a dead thread id (empty state over a "Thread not found" send).
               if (active) onActiveDeleted();

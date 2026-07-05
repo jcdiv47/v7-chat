@@ -1,10 +1,10 @@
 /**
  * The wire format for resumable streaming. The agent's AI SDK UI message stream
- * is encoded as JSONL (one JSON `UIMessageChunk` per line) and appended to the
- * `@convex-dev/persistent-text-streaming` stream. The initiating tab reads it
- * over HTTP; refreshed/second tabs read the persisted body reactively. Both
- * decode the same lines and fold them into the render view model here, so the
- * live → folded lifecycle is identical. See docs/specs/01 & 05.
+ * is encoded as JSONL (one JSON `UIMessageChunk` per line), published on the
+ * RunBus, and persisted to `run_chunks`. Every tab — initiating, refreshed, or
+ * second — reads the same lines over the `runs.stream` SSE subscription and
+ * folds them into the render view model here, so the live → folded lifecycle
+ * is identical. See docs/specs/05 & 11.
  *
  * Import-safe on the client (type-only import from `ai`).
  */
@@ -104,8 +104,15 @@ export type ReducedMessage = {
   aborted: boolean;
 };
 
-/** Fold an ordered list of chunks into render parts, preserving interleaving. */
-export function reduceChunks(chunks: UIMessageChunk[]): ReducedMessage {
+/** Incremental chunk folder: `fold` does O(1) work per chunk (this is what
+ * makes live streaming smooth — the client never re-reduces the whole body),
+ * `snapshot` returns a render-safe copy of the current state. */
+export type StreamReducer = {
+  fold(chunk: UIMessageChunk): void;
+  snapshot(): ReducedMessage;
+};
+
+export function createStreamReducer(): StreamReducer {
   const parts: RenderPart[] = [];
   const textIndex = new Map<string, number>();
   const reasoningIndex = new Map<string, number>();
@@ -124,7 +131,7 @@ export function reduceChunks(chunks: UIMessageChunk[]): ReducedMessage {
     return part;
   };
 
-  for (const chunk of chunks) {
+  const fold = (chunk: UIMessageChunk): void => {
     switch (chunk.type) {
       case "text-start": {
         if (!textIndex.has(chunk.id)) {
@@ -236,15 +243,31 @@ export function reduceChunks(chunks: UIMessageChunk[]): ReducedMessage {
       default:
         break;
     }
-  }
+  };
 
-  return { parts, finished, finishReason, errorText, aborted };
+  return {
+    fold,
+    snapshot(): ReducedMessage {
+      // Fresh array reference so React re-renders; part objects are shared
+      // (mutated in place), which the render tree tolerates — it walks parts
+      // on every update rather than memoizing on part identity.
+      return { parts: [...parts], finished, finishReason, errorText, aborted };
+    },
+  };
 }
 
-/** Byte budget for the `parts` array stored on an assistant message. Convex
- * caps documents at ~1MB, and the message doc also carries `text` (derived
- * from the text parts, so up to the same size again) plus tool lines — keep
- * parts well under half the limit so the finalize mutation can never throw. */
+/** Fold an ordered list of chunks into render parts, preserving interleaving.
+ * Used for finalized bodies; live streaming folds incrementally instead. */
+export function reduceChunks(chunks: UIMessageChunk[]): ReducedMessage {
+  const reducer = createStreamReducer();
+  for (const chunk of chunks) reducer.fold(chunk);
+  return reducer.snapshot();
+}
+
+/** Byte budget for the `parts` array stored on an assistant message, so one
+ * pathological run can't balloon a message row (the row also carries `text`,
+ * derived from the text parts, plus tool lines). Full-fidelity tool outputs
+ * live in artifacts. */
 export const MESSAGE_PARTS_BYTE_BUDGET = 400_000;
 
 const jsonBytes = (value: unknown) =>
