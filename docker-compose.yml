@@ -1,0 +1,16 @@
+# Dev app database (threads/messages/runs/chunks). Port 5433 to stay clear of
+# any local Postgres on 5432. Matches the DATABASE_URL default in .env.example.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: v7
+      POSTGRES_PASSWORD: v7
+      POSTGRES_DB: v7_chat
+    ports:
+      - "5433:5432"
+    volumes:
+      - v7-chat-pgdata:/var/lib/postgresql/data
+
+volumes:
+  v7-chat-pgdata:
