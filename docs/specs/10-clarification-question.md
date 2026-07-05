@@ -12,7 +12,7 @@ the UI renders it as a dedicated interactive card, and the user's answer
 
 Two possible shapes were considered:
 
-1. **Pause mid-run** — the tool's `execute` blocks (polling a Convex table)
+1. **Pause mid-run** — the tool's `execute` blocks (polling an answers table)
    until the user answers, then the same run continues.
 2. **End the run at the question** — the tool has **no `execute`**, so the
    `ToolLoopAgent` stops when the tool call has no result (the AI SDK's
@@ -22,29 +22,42 @@ Two possible shapes were considered:
 
 **Decision: option 2.** Rationale, specific to this architecture:
 
-- Runs execute in a scheduled Convex action (`convex/agent/loop.ts`). Actions
-  have a hard time budget; blocking one on a human who may answer in an hour
-  (or never) burns compute, eventually times out, and the heartbeat/stale-run
-  sweeper would misread a healthy wait as a dead run.
-- `ensureNoLiveRun` (`convex/chat.ts`) enforces one live run per thread. A
-  paused run would lock the composer, the queued-message flow, retry, and edit
-  for as long as the question sits unanswered.
+- Runs execute as in-process promises (`src/server/run-worker.ts`) that
+  heartbeat only at step boundaries. A tool `execute` blocked on a human who
+  may answer in an hour (or never) stops heartbeating, so after
+  `HEARTBEAT_STALE_MS` (120s) the sweeper or the next send would reclaim a
+  healthy paused run as dead. The SDK-level `RUN_TIMEOUTS.totalMs` (10 min)
+  bounds the whole run anyway, and a deploy/restart kills the in-process
+  promise outright — a paused run survives none of these; an ended run costs
+  nothing.
+- `claimThreadForRun` (`src/server/runs-service.ts`), backstopped by the
+  `one_live_run_per_thread` partial unique index, enforces one live run per
+  thread. A paused run would lock the composer, the queued-message flow,
+  retry, and edit for as long as the question sits unanswered.
 - History is already rebuilt per run from compacted turns
-  (`buildModelMessages`), so "answer starts a new run" costs nothing: the
+  (`buildModelMessages`, `src/lib/agent/history.ts`), so "answer starts a new
+  run" costs nothing: the
   question/answer pair becomes two more turns in history. This also makes
   "user ignores the question and types something else instead" work for free.
 
 Consequences:
 
 - No new run status. The run finishes `completed` with
-  `finishReason: "tool-calls"`; the unanswered `askUser` tool part is captured
-  in `reduced.parts` and persisted on the assistant message as usual. The
-  "waiting for an answer" state is **derived on the client** (last message in
-  the thread is an assistant turn whose trailing part is an unanswered
-  `askUser`, and no run is live). This avoids touching the sweeper,
-  `ensureNoLiveRun`, and every status switch.
+  `finishReason: "tool-calls"` (the worker derives status from no-error /
+  no-abort, independent of finish reason); the unanswered `askUser` tool part
+  is captured in `reduced.parts` and persisted on the assistant message as
+  usual. The "waiting for an answer" state is **derived on the client** (last
+  message in the thread is an assistant turn whose trailing part is an
+  unanswered `askUser`, and no run is live). This avoids touching the sweeper,
+  `claimThreadForRun`, and every status switch.
 - No schema migration. The question and its recorded answer live inside the
-  existing `messages.parts` (`v.array(v.any())`).
+  existing `messages.parts` jsonb column (`src/server/db/schema.ts`).
+- The stream reducer (`src/lib/agent/stream-parts.ts`) persists an unexecuted
+  tool call as a `RenderToolPart` with `status: "running"` and no `output` —
+  only a tool output flips it to `"done"`. So "unanswered" is precisely
+  `status === "running"` on the stored part, and recording the answer must
+  patch **both** `output` and `status: "done"`, or the work block's tool row
+  pulses as running forever.
 
 ## Tool Contract
 
@@ -95,7 +108,8 @@ type AskUserAnswer = {
 
 ## Answer Flow
 
-One new mutation, `chat.answerQuestion`:
+One new tRPC mutation, `chat.answerQuestion`
+(`src/server/trpc/routers/chat.ts`):
 
 ```
 answerQuestion({ messageId, toolCallId, selected: string[], otherText?: string })
@@ -104,19 +118,24 @@ answerQuestion({ messageId, toolCallId, selected: string[], otherText?: string }
 1. Validates: the message is the thread's latest, the `askUser` part matching
    `toolCallId` exists and is unanswered, at least one of
    `selected`/`otherText` is non-empty, and no live run exists (reusing the
-   stale-run reclaim in `ensureNoLiveRun` so a stale run never blocks an
+   stale-run reclaim in `claimThreadForRun` so a stale run never blocks an
    answer).
-2. Patches the stored assistant message's `askUser` part with the
-   `AskUserAnswer` output, so the card renders as answered forever without
-   deriving state from neighboring messages.
+2. Patches the stored assistant message's `askUser` part (a read-modify-write
+   of the `messages.parts` jsonb inside the transaction) with the
+   `AskUserAnswer` output and `status: "done"`, so the card renders as
+   answered forever without deriving state from neighboring messages.
 3. Inserts a user message whose `text` is a readable rendering of the answer
    (e.g. `Last 30 days`, `Selected: A, B`, or `Other: <free text>` — combined
    when both are present). History compaction feeds this to the model
    unchanged, so `buildModelMessages` needs no modification.
-4. Creates the next run exactly like `sendMessage` does (stream + run insert +
-   `run.started` event + schedule drive). Extract that boilerplate from
-   `sendMessage`/`editAndRerun`/`retryLast` into a shared helper rather than
-   duplicating it a fourth time.
+4. Creates the next run exactly like `chat.send` does, following the
+   established transaction pattern: `assertNotDraining` → `lockThread` →
+   `claimThreadForRun` → insert the answer message → `insertRun` →
+   `appendEvent` (`run.started`), then after commit
+   `publishRunEnd(reclaimedRunId)` and `startRun(runId)`, with
+   `rethrowLiveRunConflict` on the transaction. The row-level helpers are
+   already shared with `send`/`editAndRerun`/`retry`; no stream setup is
+   needed (`run_chunks` rows appear lazily via the chunk writer).
 
 ## History Compaction
 
@@ -158,7 +177,11 @@ the loop stops at the call. The pending card renders from persisted message
 parts (the run is already `completed`), so it survives refresh by
 construction. `Conversation.tsx` passes the "is latest message + no live run"
 flags and the `answerQuestion` callback down to `AssistantMessage` →
-`AssistantTurn`.
+`AssistantTurn` ("no live run" comes from `runs.latestForThread`). After
+submit, the answered state arrives via the existing `refreshThread`
+invalidation pattern (`utils.messages.list.invalidate()` on mutation
+success) — there is no reactive backend, so the refetch is what flips the
+card.
 
 ## Instructions
 
@@ -174,17 +197,28 @@ Models overuse escape-hatch tools without this.
   and then the loop stops. The UI renders only the *last trailing* `askUser`
   as interactive; extra ones stay in the work block as inert rows. The prompt
   guardrail minimizes this.
-- **User types instead of answering**: `sendMessage` works unchanged; the card
+- **User types instead of answering**: `chat.send` works unchanged; the card
   flips to Skipped. The unanswered question remains in history as a toolLine.
 - **Edit/retry**: `editAndRerun` deletes trailing messages, discarding pending
-  questions naturally. `retryLast` after an answered question regenerates as
+  questions naturally. `chat.retry` after an answered question regenerates as
   usual. No changes needed.
 - **Queued messages**: a question ends the run, so the queued-message dispatch
   in `Conversation.tsx` fires and the queued text becomes the de-facto answer
   turn; the card flips to Skipped. Acceptable V1 behavior.
+- **Final step**: `prepareStep` (`src/lib/agent/run.ts`) disables all tools on
+  the last allowed step, so the model can never end its final step on a
+  question — it is forced to give a best-effort answer instead. Desirable;
+  leave it.
+- **Run events**: the `onToolExecutionStart/End` lifecycle callbacks never
+  fire for an execute-less tool, so `askUser` produces no
+  `tool.started`/`tool.finished` run_events. `toolCallCount` still counts it
+  (incremented on `tool-input-available` in the worker). Acceptable
+  observability gap.
 - **Demo mode**: `MODEL_PROVIDER=mock` must exercise the card. Add a scripted
-  question to `convex/agent/demo.ts` (triggered by a keyword such as
-  "ambiguous") emitting the real chunk sequence.
+  question to `src/server/demo.ts` (triggered by a keyword such as
+  "ambiguous") emitting the real chunk sequence. `runDemoAnalysis` currently
+  never sees the user's message, so the trigger requires threading the user
+  text through its options.
 
 ## Implementation Phases
 
@@ -205,8 +239,9 @@ part persisted on the message; `buildToolLines` emits the documented line.
 
 ### Phase B: Answer Mutation
 
-- `convex/chat.ts`: extract the shared run-creation helper; add
-  `answerQuestion` per the flow above.
+- `src/server/trpc/routers/chat.ts`: add `answerQuestion` per the flow above,
+  reusing the existing shared helpers (`lockThread`, `claimThreadForRun`,
+  `insertRun`).
 
 Acceptance: calling `answerQuestion` patches the part, inserts the rendered
 user message, and starts a run whose model context contains the Q→A exchange;
@@ -228,7 +263,8 @@ types past it. A question mid-history renders correctly on thread reopen.
 
 ### Phase D: Demo Mode, TUI, Evals
 
-- `convex/agent/demo.ts`: scripted question path.
+- `src/server/demo.ts`: scripted question path (thread the user's message
+  text into `runDemoAnalysis` for the keyword trigger).
 - `tui/index.ts`: readline-based `askUser` dep.
 - `evals/`: a prompt asserting the agent asks (not guesses) on a genuinely
   ambiguous request, and one asserting it does *not* ask on a clear request.

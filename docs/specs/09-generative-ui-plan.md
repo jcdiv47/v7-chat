@@ -31,20 +31,25 @@ Acceptance criteria:
 - A valid call returns `{ ok: true, viewId, resultId, view }` with the
   normalized spec.
 - `buildToolLines` emits the documented one-line summary.
-- Unit-testable without Convex or Postgres (deps mocked).
+- Unit-testable without any database (deps mocked).
 
-## Phase B: Web Runtime Wiring
+## Phase B: Server Runtime Wiring
 
 Deliverables:
 
-- `convex/schema.ts`: add `view` to `artifactType` (keep `chartSpec` for
-  legacy rows); validator for the `view` payload `{ view, resultId, title }`.
-- `convex/artifacts.ts`: public `get(artifactId)` query with the standard
-  ownership check.
-- `convex/agent/webDeps.ts`: `runSql` returns the auto-saved table artifact's
-  id as `resultId`; implement `getResultMeta` (artifact lookup, thread-scoped
-  so cross-turn references work).
-- `convex/agent/demo.ts`: emit the full `presentData` chunk sequence with real
+- Add `view` to the artifact type enum (keep `chartSpec` for legacy rows) in
+  `src/server/db/schema.ts`, `ARTIFACT_TYPES` (`src/lib/agent/tools.ts`),
+  `ArtifactType` (`src/lib/agent/types.ts`), and the `saveArtifact` union in
+  `src/server/runs-service.ts`. The Drizzle `text` enum is type-level only, so
+  no DB migration; the `view` payload `{ view, resultId, title }` is validated
+  by the tool layer's zod parse (the column is jsonb).
+- `src/server/trpc/routers/artifacts.ts`: a `get(artifactId)` query with the
+  same ownership check `listForRun` uses (join through `runs.userId`).
+- `src/server/worker-deps.ts`: `runSql` returns the auto-saved table
+  artifact's id as `resultId` (`saveArtifact` already returns it); implement
+  `getResultMeta` (artifact lookup, thread-scoped so cross-turn references
+  work).
+- `src/server/demo.ts`: emit the full `presentData` chunk sequence with real
   artifact ids and save the `view` artifact, so demo mode
   (`MODEL_PROVIDER=mock`) exercises the inline path.
 
@@ -54,23 +59,27 @@ Acceptance criteria:
   `artifacts.get` to the matching table artifact.
 - `presentData` output chunks survive `trimChunkForStream` untouched (no rows
   array), and persisted parts carry the full normalized spec.
-- Legacy `chartSpec` rows still pass schema validation.
+- Legacy `chartSpec` artifacts still list and render through the panel's
+  existing path (the type enum keeps the member).
 
 ## Phase C: Frontend Rendering
 
 Deliverables:
 
 - `src/components/artifacts/DataView.tsx`: renders a validated spec against
-  rows fetched reactively via `artifacts.get(resultId)`; skeleton while
+  rows fetched via an `artifacts.get(resultId)` tRPC query; skeleton while
   loading; table fallback on parse failure, missing column, or unplottable
-  data.
+  data. No reactivity needed: the table artifact row is committed before the
+  `presentData` output chunk reaches any client, so the query finds it on
+  first render.
 - `src/components/artifacts/Chart.tsx`: extend to the union — `horizontal` as
   a bar option, multi-series line, scatter, stat callout; `sort` / `limit` /
   `format` handling. Follow the dataviz mark specs already applied.
 - `src/components/chat/AssistantTurn.tsx`: `splitParts` skips `presentData`
   parts in the trailing-text scan and lifts them into a `views` list rendered
   between the work block and the final answer, in stream order; running parts
-  render nothing.
+  render nothing. (Spec 10's trailing-`askUser` peel touches the same split —
+  whichever lands second composes with the other.)
 - `src/components/artifacts/ArtifactPanel.tsx`: Chart tab renders `view`
   artifacts through `DataView` joined by `resultId`; legacy `chartSpec`
   artifacts keep the `sourceSql`-matching path.
