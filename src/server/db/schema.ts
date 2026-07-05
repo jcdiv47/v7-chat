@@ -132,8 +132,11 @@ export const artifacts = pgTable(
       .references(() => runs.id, { onDelete: "cascade" }),
     threadId: uuid("thread_id").notNull(),
     messageId: uuid("message_id"),
+    /** `chartSpec` is legacy (pre-presentData rows); new views use `view`.
+     * The enum is type-level only (no DB check constraint), so adding a
+     * member needs no migration. */
     type: text("type", {
-      enum: ["sql", "table", "chartSpec", "finding", "error"],
+      enum: ["sql", "table", "chartSpec", "view", "finding", "error"],
     }).notNull(),
     title: text("title").notNull(),
     payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),

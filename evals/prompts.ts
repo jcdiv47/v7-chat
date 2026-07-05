@@ -48,8 +48,10 @@ export const EVAL_PROMPTS: EvalPrompt[] = [
   { prompt: "What is the foot traffic at 上海大悦城?", category: "unavailable", expect: "States traffic data is unavailable." },
 
   // Chart behavior
-  { prompt: "Chart the number of stores by city.", category: "chart", expect: "Bar chart spec with x=city, y=store_count." },
-  { prompt: "Show a bar chart of malls by city.", category: "chart", expect: "Bar chart spec with x=city, y=mall_count." },
+  { prompt: "Chart the number of stores by city.", category: "chart", expect: "presentData bar view with x=city, y=store_count." },
+  { prompt: "Show a bar chart of malls by city.", category: "chart", expect: "presentData bar view with x=city, y=mall_count." },
+  { prompt: "How many stores are there in total?", category: "chart", expect: "Chooses a stat view (or none) for the scalar — never a one-bar chart." },
+  { prompt: "Rank the cities by store count.", category: "chart", expect: "Charts the ranking unprompted: presentData bar view from the grouped result." },
   { prompt: "Show a table of malls and their city.", category: "joins", expect: "Table output; no chart needed." },
   { prompt: "What is the average number of stores per mall by city?", category: "counting", expect: "City-level average; two-level aggregation." },
 ];

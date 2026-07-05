@@ -29,4 +29,28 @@ export const artifactsRouter = router({
         createdAt: a.createdAt.getTime(),
       }));
     }),
+
+  /** One artifact by id (DataView fetching a view's result rows). Same
+   * ownership check as listForRun, joined through the owning run. */
+  get: publicProcedure
+    .input(z.object({ artifactId: z.uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [row] = await ctx.db
+        .select({ artifact: artifacts })
+        .from(artifacts)
+        .innerJoin(runs, eq(runs.id, artifacts.runId))
+        .where(and(eq(artifacts.id, input.artifactId), eq(runs.userId, ctx.userId)));
+      if (!row) return null;
+      const a = row.artifact;
+      return {
+        id: a.id,
+        runId: a.runId,
+        threadId: a.threadId,
+        messageId: a.messageId,
+        type: a.type,
+        title: a.title,
+        payload: a.payload,
+        createdAt: a.createdAt.getTime(),
+      };
+    }),
 });

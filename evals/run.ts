@@ -37,19 +37,29 @@ type Capture = {
 };
 
 function evalDeps(executor: PostgresExecutor, skills: ReturnType<typeof createDiskSkillSource>, cap: Capture): AgentToolDeps {
+  const results = new Map<string, { columns: string[]; rowCount: number }>();
   return {
     listTables: () => executor.listTables(),
     describeTable: (t) => executor.describeTable(t),
     async runSql(input) {
       cap.sql.push(input.sql);
-      return executor.runSql(input);
+      const result = await executor.runSql(input);
+      if (!result.ok) return result;
+      const resultId = `r${results.size + 1}`;
+      results.set(resultId, { columns: result.columns.map((c) => c.name), rowCount: result.rowCount });
+      return { ...result, resultId };
+    },
+    async getResultMeta(resultId) {
+      return results.get(resultId) ?? null;
     },
     async loadSkill(name) {
       const s = skills.load(name);
       return s ? { skillDirectory: s.directory, content: s.content } : { skillDirectory: "", content: "not found" };
     },
     async saveArtifact({ type }) {
-      if (type === "chartSpec") cap.chartSaved = true;
+      // A saved view is a successful presentData call (the tool validates
+      // before saving); chartSpec covers a model still on the legacy path.
+      if (type === "view" || type === "chartSpec") cap.chartSaved = true;
       return { id: "eval" };
     },
   };

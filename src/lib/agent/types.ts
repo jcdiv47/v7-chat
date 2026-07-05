@@ -17,7 +17,7 @@ export type ReasoningEffort =
   | "high"
   | "xhigh";
 
-export type ArtifactType = "sql" | "table" | "chartSpec" | "finding" | "error";
+export type ArtifactType = "sql" | "table" | "chartSpec" | "view" | "finding" | "error";
 
 /** A column descriptor returned from a SQL query. */
 export type SqlColumn = { name: string; type?: string };
@@ -31,6 +31,10 @@ export type RunSqlOutput = {
   truncated: boolean;
   executionTimeMs: number;
   sql: string;
+  /** Id of the saved result the model can reference in `presentData` — the
+   * auto-saved `table` artifact id (web) or a runtime-local id like "r1"
+   * (TUI, evals). Added by the deps wrapper, not the executor. */
+  resultId?: string;
 };
 
 /** Failed `runSql` result. */
@@ -62,7 +66,9 @@ export type LoadSkillOutput = {
   content: string;
 };
 
-/** A chart specification produced by the agent / chart-selection skill. */
+/** LEGACY: the pre-`presentData` chart spec, kept only so existing
+ * `chartSpec` artifacts still render through the panel's old path. New views
+ * use `ViewSpec` from ./ui-spec. */
 export type ChartSpec = {
   type: "bar" | "horizontalBar" | "line" | "table" | "none";
   title: string;
@@ -102,6 +108,12 @@ export type AgentToolDeps = {
     title: string;
     payload: Record<string, unknown>;
   }): Promise<{ id: string }>;
+  /** Metadata for a saved query result, by `resultId`. Thread-scoped in the
+   * web runtime (cross-turn references are valid); an in-memory map in the
+   * TUI and eval harness. Null for an unknown id. */
+  getResultMeta(
+    resultId: string,
+  ): Promise<{ columns: string[]; rowCount: number } | null>;
 };
 
 /** Lifecycle events captured for observability (V1 substitute for Langfuse). */

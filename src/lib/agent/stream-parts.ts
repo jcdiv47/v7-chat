@@ -9,6 +9,7 @@
  * Import-safe on the client (type-only import from `ai`).
  */
 import type { UIMessageChunk } from "ai";
+import type { PresentDataOutput } from "./ui-spec";
 
 /** Rows kept in a runSql tool-output part *in the stream* (the small preview).
  * The full preview lives in the run's artifacts/events, fetched on expand. */
@@ -330,6 +331,8 @@ export function toolLabel(part: RenderToolPart): string {
       return input.table ? `Described ${input.table}` : "Described a table";
     case "runSql":
       return part.status === "error" ? "Ran SQL (failed)" : "Ran SQL query";
+    case "presentData":
+      return input.title ? `Presented ${input.title}` : "Presented a view";
     case "saveArtifact":
       return input.title ? `Saved ${input.title}` : "Saved an artifact";
     default:
@@ -350,9 +353,37 @@ export function buildToolLines(parts: RenderPart[]): string[] {
         typeof output.rowCount === "number" ? ` (rows: ${output.rowCount})` : "";
       const failed = part.status === "error" ? " (failed)" : "";
       lines.push(`runSql: ${sql}${rows}${failed}`);
+    } else if (part.name === "presentData") {
+      lines.push(presentDataLine(part));
     } else {
       lines.push(toolLabel(part));
     }
   }
   return lines;
+}
+
+/** `presentData: bar "Stores by city" (x: city, y: count, result: <id>)` —
+ * one line of spec+resultId context so later turns can say "sort it
+ * descending" or "show that as a line" without re-running SQL. */
+function presentDataLine(part: RenderToolPart): string {
+  const input = (part.input ?? {}) as { title?: string; type?: string };
+  const output = (part.output ?? {}) as Partial<PresentDataOutput>;
+  const title = input.title ? ` "${input.title}"` : "";
+  if (output.ok !== true) {
+    const error = output.ok === false ? output.error : part.errorText;
+    return `presentData: ${input.type ?? "view"}${title} (failed${error ? `: ${error}` : ""})`;
+  }
+  const view = output.view!;
+  const fields: string[] = [];
+  if (view.type === "table" && view.columns?.length) {
+    fields.push(`columns: ${view.columns.join(", ")}`);
+  } else if (view.type === "line") {
+    fields.push(`x: ${view.x.column}`, `y: ${view.y.map((a) => a.column).join(", ")}`);
+  } else if (view.type === "bar" || view.type === "scatter") {
+    fields.push(`x: ${view.x.column}`, `y: ${view.y.column}`);
+  } else if (view.type === "stat") {
+    fields.push(`value: ${view.value.column}`);
+  }
+  fields.push(`result: ${output.resultId}`);
+  return `presentData: ${view.type}${title} (${fields.join(", ")})`;
 }

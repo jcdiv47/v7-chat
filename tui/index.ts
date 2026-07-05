@@ -47,10 +47,25 @@ function loadEnv() {
 }
 
 function createTuiDeps(executor: PostgresExecutor, skills: SkillSource): AgentToolDeps {
+  // Local result registry: runtime-local ids (r1, r2, …) instead of artifact
+  // rows, so presentData works without a database.
+  const results = new Map<string, { columns: string[]; rowCount: number }>();
   return {
     listTables: () => executor.listTables(),
     describeTable: (t) => executor.describeTable(t),
-    runSql: (input) => executor.runSql(input),
+    async runSql(input) {
+      const result = await executor.runSql(input);
+      if (!result.ok) return result;
+      const resultId = `r${results.size + 1}`;
+      results.set(resultId, {
+        columns: result.columns.map((c) => c.name),
+        rowCount: result.rowCount,
+      });
+      return { ...result, resultId };
+    },
+    async getResultMeta(resultId) {
+      return results.get(resultId) ?? null;
+    },
     async loadSkill(name) {
       const skill = skills.load(name);
       if (!skill) {
@@ -74,9 +89,15 @@ function createTuiDeps(executor: PostgresExecutor, skills: SkillSource): AgentTo
 /** Print a compact one-line tool summary for a finished tool call. */
 function summarizeTool(part: RenderToolPart): string {
   if (part.name === "runSql") {
-    const output = (part.output ?? {}) as { rowCount?: number; ok?: boolean; error?: string };
+    const output = (part.output ?? {}) as { rowCount?: number; ok?: boolean; error?: string; resultId?: string };
     if (output.ok === false) return `runSql failed: ${output.error ?? "error"}`;
-    return `runSql → ${output.rowCount ?? 0} row(s)`;
+    return `runSql → ${output.rowCount ?? 0} row(s)${output.resultId ? ` (${output.resultId})` : ""}`;
+  }
+  if (part.name === "presentData") {
+    const output = (part.output ?? {}) as { ok?: boolean; error?: string; view?: { type?: string } };
+    const title = (part.input as { title?: string } | undefined)?.title ?? "";
+    if (output.ok !== true) return `presentData failed: ${output.error ?? "error"}`;
+    return `[view: ${output.view?.type} "${title}"]`;
   }
   return toolLabel(part);
 }

@@ -68,7 +68,7 @@ export async function saveArtifact(
   artifact: {
     runId: string;
     threadId: string;
-    type: "sql" | "table" | "chartSpec" | "finding" | "error";
+    type: "sql" | "table" | "chartSpec" | "view" | "finding" | "error";
     title: string;
     payload: Record<string, unknown>;
   },

@@ -4,11 +4,13 @@
  * events are written straight through Drizzle. Credentials never appear here.
  * See docs/specs/02 → Tool Context.
  */
-import type { AgentToolDeps } from "../lib/agent/types";
+import { and, eq } from "drizzle-orm";
+import type { AgentToolDeps, SqlColumn } from "../lib/agent/types";
 import { createPgExecutor } from "../lib/sql/pg-executor";
 import type { PostgresExecutor } from "../lib/sql/executor";
 import { bundledSkillSource } from "../lib/skills/loader";
 import { getDb } from "./db/client";
+import { artifacts } from "./db/schema";
 import { appendEvent, heartbeat, saveArtifact } from "./runs-service";
 
 export type RunStats = {
@@ -96,7 +98,7 @@ export function createWorkerDeps(opts: {
           title: purpose ? `SQL — ${purpose}` : "SQL query",
           payload: { sql: result.sql, purpose, executionTimeMs: result.executionTimeMs },
         });
-        await saveArtifact(db, {
+        const resultId = await saveArtifact(db, {
           runId,
           threadId,
           type: "table",
@@ -110,6 +112,8 @@ export function createWorkerDeps(opts: {
             sql: result.sql,
           },
         });
+        // The model echoes this id into presentData to reference the result.
+        return { ...result, resultId };
       } else {
         await saveArtifact(db, {
           runId,
@@ -134,6 +138,25 @@ export function createWorkerDeps(opts: {
       }
       stats.loadedSkills.add(name);
       return { skillDirectory: skill.directory, content: skill.content };
+    },
+
+    async getResultMeta(resultId) {
+      // Thread-scoped (not run-scoped) so a follow-up turn can re-present an
+      // earlier turn's result without re-running SQL.
+      const row = await db.query.artifacts.findFirst({
+        columns: { payload: true },
+        where: and(
+          eq(artifacts.id, resultId),
+          eq(artifacts.threadId, threadId),
+          eq(artifacts.type, "table"),
+        ),
+      });
+      if (!row) return null;
+      const payload = row.payload as { columns?: SqlColumn[]; rowCount?: number };
+      return {
+        columns: (payload.columns ?? []).map((c) => c.name),
+        rowCount: payload.rowCount ?? 0,
+      };
     },
 
     async saveArtifact({ type, title, payload }) {

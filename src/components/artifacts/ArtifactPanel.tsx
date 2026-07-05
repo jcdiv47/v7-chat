@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CodeBlock } from "@/components/chat/CodeBlock";
 import { Markdown } from "@/components/chat/Markdown";
 import { Chart } from "./Chart";
+import { DataView } from "./DataView";
 import { ResultTable } from "./ResultTable";
 
 type Artifact = ArtifactItem;
@@ -41,7 +42,8 @@ export function ArtifactPanel({
 
   const sql = artifacts.filter((a) => a.type === "sql");
   const tables = artifacts.filter((a) => a.type === "table");
-  const charts = artifacts.filter((a) => a.type === "chartSpec");
+  const views = artifacts.filter((a) => a.type === "view");
+  const legacyCharts = artifacts.filter((a) => a.type === "chartSpec");
   const errors = artifacts.filter((a) => a.type === "error");
 
   return (
@@ -135,14 +137,26 @@ export function ArtifactPanel({
           </TabsContent>
 
           <TabsContent value="chart" className="space-y-6">
-            {charts.length === 0 ? (
+            {views.length === 0 && legacyCharts.length === 0 ? (
               <Empty label="No chart was produced. Ask for a chart of a grouped result." />
             ) : (
-              charts.map((a) => {
-                const spec = a.payload as unknown as ChartSpec;
-                const rows = rowsForChart(spec, tables);
-                return <Chart key={a.id} spec={spec} rows={rows} />;
-              })
+              <>
+                {/* presentData views join their result rows by resultId. */}
+                {views.map((a) => (
+                  <DataView
+                    key={a.id}
+                    view={a.payload.view}
+                    resultId={String(a.payload.resultId ?? "")}
+                    title={String(a.payload.title ?? a.title)}
+                  />
+                ))}
+                {/* Legacy chartSpec artifacts keep the sourceSql-matching path. */}
+                {legacyCharts.map((a) => {
+                  const spec = a.payload as unknown as ChartSpec;
+                  const rows = rowsForChart(spec, tables);
+                  return <Chart key={a.id} spec={spec} rows={rows} />;
+                })}
+              </>
             )}
           </TabsContent>
 

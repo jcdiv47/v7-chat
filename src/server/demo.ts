@@ -8,6 +8,7 @@
  */
 import type { UIMessageChunk } from "ai";
 import type { AgentToolDeps } from "../lib/agent/types";
+import type { ViewSpec } from "../lib/agent/ui-spec";
 
 export type DemoResult = {
   finishReason: string;
@@ -116,6 +117,16 @@ export async function runDemoAnalysis(opts: {
     input: { sql: SQL, purpose: "malls per city" },
   });
   await sleep(120);
+
+  // Persist artifacts (as the real runSql deps do, before the output chunk) so
+  // the artifact panel is populated and the output can carry a real resultId.
+  await saveArtifact({ type: "sql", title: "SQL — malls per city", payload: { sql: SQL, purpose: "malls per city", executionTimeMs: 12 } });
+  const { id: resultId } = await saveArtifact({
+    type: "table",
+    title: "Result — malls per city",
+    payload: { columns: [{ name: "city", type: "text" }, { name: "mall_count", type: "int8" }], rows: ROWS, rowCount: ROWS.length, truncated: false, sql: SQL },
+  });
+
   await emit({
     type: "tool-output-available",
     toolCallId: "t2",
@@ -130,23 +141,44 @@ export async function runDemoAnalysis(opts: {
       truncated: false,
       executionTimeMs: 12,
       sql: SQL,
+      resultId,
     },
   });
 
-  // Persist artifacts so the artifact panel is populated in the demo too.
-  await saveArtifact({ type: "sql", title: "SQL — malls per city", payload: { sql: SQL, purpose: "malls per city", executionTimeMs: 12 } });
-  await saveArtifact({
-    type: "table",
-    title: "Result — malls per city",
-    payload: { columns: [{ name: "city", type: "text" }, { name: "mall_count", type: "int8" }], rows: ROWS, rowCount: ROWS.length, truncated: false, sql: SQL },
+  if (!(await cont(2))) return { finishReason: "abort", steps: 2, aborted: true };
+
+  // Tool: presentData — the full chunk sequence, so demo mode exercises the
+  // inline-view path (docs/specs/08 → Parallel Runtimes).
+  const viewInput = { title: "Malls per city", type: "bar", x: "city", y: "mall_count", sort: "desc", resultId };
+  const view: ViewSpec = {
+    type: "bar",
+    x: { column: "city" },
+    y: { column: "mall_count" },
+    sort: "desc",
+  };
+  await emit({ type: "tool-input-start", toolCallId: "t3", toolName: "presentData" });
+  for (const piece of chunkText(JSON.stringify(viewInput), 40)) {
+    await emit({ type: "tool-input-delta", toolCallId: "t3", inputTextDelta: piece });
+    await sleep(30);
+  }
+  await emit({
+    type: "tool-input-available",
+    toolCallId: "t3",
+    toolName: "presentData",
+    input: viewInput,
   });
-  await saveArtifact({
-    type: "chartSpec",
+  const { id: viewId } = await saveArtifact({
+    type: "view",
     title: "Malls per city",
-    payload: { type: "bar", title: "Malls per city", x: "city", y: "mall_count", sourceSql: SQL },
+    payload: { view, resultId, title: "Malls per city" },
+  });
+  await emit({
+    type: "tool-output-available",
+    toolCallId: "t3",
+    output: { ok: true, viewId, resultId, view },
   });
 
-  if (!(await cont(2))) return { finishReason: "abort", steps: 2, aborted: true };
+  if (!(await cont(3))) return { finishReason: "abort", steps: 3, aborted: true };
 
   // Final answer
   await emit({ type: "text-start", id: "x1" });
@@ -158,5 +190,5 @@ export async function runDemoAnalysis(opts: {
 
   await emit({ type: "finish", finishReason: "stop" });
 
-  return { finishReason: "stop", steps: 2, aborted: false };
+  return { finishReason: "stop", steps: 3, aborted: false };
 }

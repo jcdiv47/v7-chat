@@ -7,16 +7,33 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import type { AgentToolDeps, ArtifactType } from "./types";
+import {
+  formatViewSpecError,
+  normalizeViewInput,
+  presentDataInput,
+  referencedColumns,
+  viewSpec,
+  type PresentDataOutput,
+} from "./ui-spec";
 
 export const ARTIFACT_TYPES = [
   "sql",
   "table",
   "chartSpec",
+  "view",
   "finding",
   "error",
 ] as const satisfies readonly ArtifactType[];
 
+/** Types the model may save directly; sql/table are auto-saved by runSql and
+ * view by presentData. (chartSpec is legacy — superseded by presentData.) */
+const SAVEABLE_ARTIFACT_TYPES = ["finding", "error"] as const;
+
 export function createAgentTools(deps: AgentToolDeps): ToolSet {
+  // resultIds produced by this turn's runSql calls, powering presentData's
+  // sole-result fallback and its "available ids" error messages.
+  const turnResultIds: string[] = [];
+
   return {
     loadSkill: tool({
       description:
@@ -59,17 +76,76 @@ export function createAgentTools(deps: AgentToolDeps): ToolSet {
           .optional()
           .describe("A short note on what this query is meant to answer."),
       }),
-      execute: async ({ sql, purpose }) => deps.runSql({ sql, purpose }),
+      execute: async ({ sql, purpose }) => {
+        const result = await deps.runSql({ sql, purpose });
+        if (result.ok && result.resultId) turnResultIds.push(result.resultId);
+        return result;
+      },
+    }),
+
+    presentData: tool({
+      description:
+        "Present a query result as an inline view for the user: a table, bar or " +
+        "line chart, scatter plot, or single-stat callout. Reference the result " +
+        "by the resultId returned from runSql; never re-type rows. Call this " +
+        "after the result exists and before writing your final answer.",
+      inputSchema: presentDataInput,
+      execute: async (input): Promise<PresentDataOutput> => {
+        const parsed = viewSpec.safeParse(normalizeViewInput(input));
+        if (!parsed.success) {
+          return { ok: false, error: formatViewSpecError(input.type, parsed.error) };
+        }
+        const view = parsed.data;
+
+        let resultId = input.resultId;
+        if (!resultId) {
+          if (turnResultIds.length === 1) {
+            resultId = turnResultIds[0];
+          } else if (turnResultIds.length === 0) {
+            return { ok: false, error: "No query result to present — run SQL first." };
+          } else {
+            return {
+              ok: false,
+              error: `Multiple results this turn — pass resultId (one of: ${turnResultIds.join(", ")}).`,
+            };
+          }
+        }
+
+        const meta = await deps.getResultMeta(resultId);
+        if (!meta) {
+          const known = turnResultIds.length
+            ? ` Known ids this turn: ${turnResultIds.join(", ")}.`
+            : "";
+          return { ok: false, error: `Unknown resultId '${resultId}'.${known}` };
+        }
+
+        const missing = referencedColumns(view).filter(
+          (c) => !meta.columns.includes(c),
+        );
+        if (missing.length > 0) {
+          return {
+            ok: false,
+            error: `column '${missing[0]}' not in result (has: ${meta.columns.join(", ")})`,
+          };
+        }
+
+        const { id: viewId } = await deps.saveArtifact({
+          type: "view",
+          title: input.title,
+          payload: { view, resultId, title: input.title },
+        });
+        return { ok: true, viewId, resultId, view };
+      },
     }),
 
     saveArtifact: tool({
       description:
-        "Save an analysis artifact so the user can inspect it. Use type 'chartSpec' " +
-        "for a chart (payload: {type,title,x,y,sourceSql}), 'finding' for a key " +
-        "result, or 'error' to record a failure. SQL and result tables from runSql " +
-        "are saved automatically, so you do not need to save those yourself.",
+        "Save an analysis artifact so the user can inspect it. Use type 'finding' " +
+        "for a key result, or 'error' to record a failure. SQL and result tables " +
+        "from runSql are saved automatically, and views are saved by presentData, " +
+        "so you do not need to save those yourself.",
       inputSchema: z.object({
-        type: z.enum(ARTIFACT_TYPES),
+        type: z.enum(SAVEABLE_ARTIFACT_TYPES),
         title: z.string(),
         payload: z
           .record(z.string(), z.any())
@@ -88,5 +164,6 @@ export const AGENT_TOOL_NAMES = [
   "listTables",
   "describeTable",
   "runSql",
+  "presentData",
   "saveArtifact",
 ] as const;
