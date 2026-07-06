@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, or, type SQL } from "drizzle-orm";
 import type { Db } from "../db/client";
 import { searchTerms, threads } from "../db/schema";
 
@@ -47,6 +47,38 @@ export function tokenizeTitleSearchText(value: string): string[] {
   addHan();
 
   return Array.from(terms).slice(0, MAX_TERMS);
+}
+
+/** Escape LIKE wildcards so a token matches only as a literal prefix. Word
+ * tokens are letters/numbers today (see WORD_RE) so this is defensive, but it
+ * keeps the prefix safe if the tokenizer ever admits `%`, `_`, or `\`. */
+const escapeLikePrefix = (value: string): string => value.replace(/[\\%_]/g, "\\$&");
+
+/**
+ * Build the `search_terms.term` predicate for a ⌘K query. Word tokens match as
+ * prefixes so the palette narrows as you type ("dash" → "dashboard"); Han
+ * uni/bigrams stay exact matches, since bigrams already are the search
+ * granularity for CJK and prefix-matching them would double-count. Returns
+ * undefined when the query yields no terms (caller should return no results).
+ *
+ * Prefix LIKEs are applied within a single user's rows (the caller ANDs
+ * `userId`), so the existing `(user_id, term)` index bounds the scan; a
+ * `text_pattern_ops` index would make the prefixes index-driven if per-user
+ * term volume ever grows large.
+ */
+export function buildTitleTermMatch(query: string): SQL | undefined {
+  const terms = tokenizeTitleSearchText(query);
+  if (terms.length === 0) return undefined;
+
+  const hanTerms = terms.filter((t) => HAN_RE.test(t));
+  const wordTerms = terms.filter((t) => !HAN_RE.test(t));
+
+  const clauses: SQL[] = [];
+  if (hanTerms.length > 0) clauses.push(inArray(searchTerms.term, hanTerms));
+  for (const term of wordTerms) {
+    clauses.push(like(searchTerms.term, `${escapeLikePrefix(term)}%`));
+  }
+  return clauses.length === 1 ? clauses[0] : or(...clauses);
 }
 
 export async function replaceThreadTitleSearchTerms(

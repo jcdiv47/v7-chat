@@ -1,11 +1,11 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { searchTerms, threads } from "../../db/schema";
 import { newId } from "../../runs-service";
 import {
+  buildTitleTermMatch,
   replaceThreadTitleSearchTerms,
   THREAD_TITLE_SOURCE,
-  tokenizeTitleSearchText,
 } from "../../search/title-index";
 import { publicProcedure, router } from "../trpc";
 
@@ -44,13 +44,14 @@ export const threadsRouter = router({
       return row ? toThreadSummary(row) : null;
     }),
 
-  /** Title search for the ⌘K palette. Uses app-managed English terms and
-   * Chinese bigrams in search_terms so standard Railway Postgres is enough. */
+  /** Title search for the ⌘K palette. Matches app-managed search_terms —
+   * English words by prefix (so it narrows as you type) and Chinese bigrams
+   * exactly — so standard Railway Postgres is enough. */
   search: publicProcedure
     .input(z.object({ query: z.string().max(200) }))
     .query(async ({ ctx, input }) => {
-      const terms = tokenizeTitleSearchText(input.query);
-      if (terms.length === 0) return [];
+      const termMatch = buildTitleTermMatch(input.query);
+      if (!termMatch) return [];
       const matchCount = sql<number>`count(*)::int`;
       const rows = await ctx.db
         .select({
@@ -70,7 +71,7 @@ export const threadsRouter = router({
           and(
             eq(searchTerms.userId, ctx.userId),
             eq(searchTerms.sourceKind, THREAD_TITLE_SOURCE),
-            inArray(searchTerms.term, terms),
+            termMatch,
           ),
         )
         .groupBy(
