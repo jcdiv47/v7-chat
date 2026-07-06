@@ -140,8 +140,11 @@ inputSchema: z.object({
    city_name, store_count)" }`.
 5. **Save** a `view` artifact via the existing `saveArtifact` dep:
    `payload = { view, resultId, title }`.
-6. **Return** `{ ok: true, viewId, resultId, view }` — where `view` is the
+6. **Return** `{ ok: true, resultId, view }` — where `view` is the
    normalized, validated spec. This output is what the frontend renders.
+   Deliberately no view/artifact id: the model only needs `resultId` for
+   follow-ups, and returning an id tempted models into hallucinated
+   `![title](id)` markdown-image references in their answers.
 
 Every failure mode is a structured tool result, so the model self-corrects
 within its remaining loop steps instead of failing the run.

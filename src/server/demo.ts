@@ -237,7 +237,7 @@ export async function runDemoAnalysis(opts: {
     toolName: "presentData",
     input: viewInput,
   });
-  const { id: viewId } = await saveArtifact({
+  await saveArtifact({
     type: "view",
     title: "Malls per city",
     payload: { view, resultId, title: "Malls per city" },
@@ -245,7 +245,7 @@ export async function runDemoAnalysis(opts: {
   await emit({
     type: "tool-output-available",
     toolCallId: "t3",
-    output: { ok: true, viewId, resultId, view },
+    output: { ok: true, resultId, view },
   });
 
   if (!(await cont(3))) return { finishReason: "abort", steps: 3, aborted: true };

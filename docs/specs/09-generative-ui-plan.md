@@ -28,8 +28,8 @@ Acceptance criteria:
 
 - Every invalid input (bad variant, unknown `resultId`, missing column)
   returns a structured `{ ok: false, error }` tool result; nothing throws.
-- A valid call returns `{ ok: true, viewId, resultId, view }` with the
-  normalized spec.
+- A valid call returns `{ ok: true, resultId, view }` with the
+  normalized spec (no view id — see spec 08).
 - `buildToolLines` emits the documented one-line summary.
 - Unit-testable without any database (deps mocked).
 

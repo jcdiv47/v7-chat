@@ -158,12 +158,12 @@ export function createAgentTools(deps: AgentToolDeps): ToolSet {
           };
         }
 
-        const { id: viewId } = await deps.saveArtifact({
+        await deps.saveArtifact({
           type: "view",
           title: input.title,
           payload: { view, resultId, title: input.title },
         });
-        return { ok: true, viewId, resultId, view };
+        return { ok: true, resultId, view };
       },
     }),
 

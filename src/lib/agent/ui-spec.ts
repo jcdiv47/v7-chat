@@ -187,7 +187,10 @@ export function referencedColumns(view: ViewSpec): string[] {
   }
 }
 
-/** Successful `presentData` tool output — what the frontend renders from. */
+/** Successful `presentData` tool output — what the frontend renders from.
+ * Deliberately no view/artifact id: the model only needs `resultId` for
+ * follow-ups, and returning an id tempts it into hallucinated
+ * `![title](id)` markdown-image references in its answer. */
 export type PresentDataOutput =
-  | { ok: true; viewId: string; resultId: string; view: ViewSpec }
+  | { ok: true; resultId: string; view: ViewSpec }
   | { ok: false; error: string };
