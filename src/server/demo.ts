@@ -7,7 +7,7 @@
  * a demo.
  */
 import type { UIMessageChunk } from "ai";
-import type { AgentToolDeps } from "../lib/agent/types";
+import type { AgentToolDeps, AskUserInput } from "../lib/agent/types";
 import type { ViewSpec } from "../lib/agent/ui-spec";
 
 export type DemoResult = {
@@ -61,10 +61,61 @@ function chunkText(text: string, size = 24): string[] {
   return out;
 }
 
+const QUESTION_REASONING =
+  "This is the offline demo runner. The request looks ambiguous, so I'll ask " +
+  "one clarification question and stop — the answer starts the next run.";
+
+const QUESTION_INPUT: AskUserInput = {
+  question: "Which timeframe should the analysis cover?",
+  kind: "single",
+  options: [
+    { label: "Last 7 days", description: "Recent activity only" },
+    { label: "Last 30 days", description: "A month of activity" },
+    { label: "All time" },
+  ],
+};
+
+/** Scripted askUser turn: the real HITL chunk sequence — the tool call gets
+ * input but never an output, and the run finishes on "tool-calls" (the loop
+ * stops at the question; see docs/specs/10). */
+async function runDemoQuestion(
+  emit: (c: UIMessageChunk) => Promise<void>,
+  cont: (step: number) => Promise<boolean>,
+): Promise<DemoResult> {
+  await emit({ type: "start" });
+  await emit({ type: "start-step" });
+  if (!(await cont(0))) return { finishReason: "abort", steps: 0, aborted: true };
+
+  await emit({ type: "reasoning-start", id: "r1" });
+  for (const piece of chunkText(QUESTION_REASONING, 24)) {
+    await emit({ type: "reasoning-delta", id: "r1", delta: piece });
+    await sleep(40);
+  }
+  await emit({ type: "reasoning-end", id: "r1" });
+
+  await emit({ type: "tool-input-start", toolCallId: "q1", toolName: "askUser" });
+  for (const piece of chunkText(JSON.stringify(QUESTION_INPUT), 40)) {
+    await emit({ type: "tool-input-delta", toolCallId: "q1", inputTextDelta: piece });
+    await sleep(30);
+  }
+  await emit({
+    type: "tool-input-available",
+    toolCallId: "q1",
+    toolName: "askUser",
+    input: QUESTION_INPUT,
+  });
+
+  await emit({ type: "finish", finishReason: "tool-calls" });
+  return { finishReason: "tool-calls", steps: 1, aborted: false };
+}
+
 export async function runDemoAnalysis(opts: {
   onChunk: (chunk: UIMessageChunk) => Promise<void> | void;
   saveArtifact: AgentToolDeps["saveArtifact"];
   beforeStep?: (stepNumber: number) => Promise<boolean> | boolean;
+  /** The triggering user message text. The keyword "ambiguous" switches to the
+   * scripted clarification-question turn. */
+  userText?: string;
 }): Promise<DemoResult> {
   const { onChunk, saveArtifact, beforeStep } = opts;
   const emit = async (c: UIMessageChunk) => {
@@ -72,6 +123,10 @@ export async function runDemoAnalysis(opts: {
   };
 
   const cont = async (step: number) => (beforeStep ? await beforeStep(step) : true);
+
+  if (opts.userText && /ambiguous/i.test(opts.userText)) {
+    return runDemoQuestion(emit, cont);
+  }
 
   await emit({ type: "start" });
   await emit({ type: "start-step" });

@@ -66,6 +66,25 @@ export type LoadSkillOutput = {
   content: string;
 };
 
+/** Input for the `askUser` clarification-question tool. */
+export type AskUserInput = {
+  question: string;
+  kind: "single" | "multi";
+  options: { label: string; description?: string }[];
+};
+
+/** The recorded answer to an `askUser` question — written into the tool
+ * part's `output` by the answer mutation (web) or returned by the readline
+ * prompt (TUI). */
+export type AskUserAnswer = {
+  answered: true;
+  /** Labels of the chosen options (single-choice: length 1). Empty when the
+   * user answered purely via free text. */
+  selected: string[];
+  /** Free-text "Other" reply, standalone or alongside selections. */
+  otherText?: string;
+};
+
 /** LEGACY: the pre-`presentData` chart spec, kept only so existing
  * `chartSpec` artifacts still render through the panel's old path. New views
  * use `ViewSpec` from ./ui-spec. */
@@ -114,6 +133,11 @@ export type AgentToolDeps = {
   getResultMeta(
     resultId: string,
   ): Promise<{ columns: string[]; rowCount: number } | null>;
+  /** Prompt the human and resolve with their answer. Provided by the TUI
+   * (inline readline). The web runtime omits it, so the tool has no
+   * `execute`: the loop stops at the question and the answer arrives as the
+   * next turn (the AI SDK's HITL stop-and-wait pattern). */
+  askUser?(input: AskUserInput): Promise<AskUserAnswer>;
 };
 
 /** Lifecycle events captured for observability (V1 substitute for Langfuse). */

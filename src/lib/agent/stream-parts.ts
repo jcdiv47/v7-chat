@@ -9,6 +9,7 @@
  * Import-safe on the client (type-only import from `ai`).
  */
 import type { UIMessageChunk } from "ai";
+import type { AskUserAnswer, AskUserInput } from "./types";
 import type { PresentDataOutput } from "./ui-spec";
 
 /** Rows kept in a runSql tool-output part *in the stream* (the small preview).
@@ -333,6 +334,12 @@ export function toolLabel(part: RenderToolPart): string {
       return part.status === "error" ? "Ran SQL (failed)" : "Ran SQL query";
     case "presentData":
       return input.title ? `Presented ${input.title}` : "Presented a view";
+    case "askUser": {
+      const question = typeof input.question === "string" ? input.question : "";
+      return question
+        ? `Asked: ${question.length > 80 ? `${question.slice(0, 80)}…` : question}`
+        : "Asked a question";
+    }
     case "saveArtifact":
       return input.title ? `Saved ${input.title}` : "Saved an artifact";
     default:
@@ -355,11 +362,34 @@ export function buildToolLines(parts: RenderPart[]): string[] {
       lines.push(`runSql: ${sql}${rows}${failed}`);
     } else if (part.name === "presentData") {
       lines.push(presentDataLine(part));
+    } else if (part.name === "askUser") {
+      lines.push(askUserLine(part));
     } else {
       lines.push(toolLabel(part));
     }
   }
   return lines;
+}
+
+/** `askUser: "Which timeframe?" (single: Last 7 days | Last 30 days | All time)`
+ * — the full question and options stay in history so the next run sees a
+ * coherent Q→A exchange with the user's answer turn. An answered part (TUI
+ * inline answer, or the web answer mutation's patch) appends the pick. */
+function askUserLine(part: RenderToolPart): string {
+  const input = (part.input ?? {}) as Partial<AskUserInput>;
+  const output = (part.output ?? {}) as Partial<AskUserAnswer>;
+  const options = (input.options ?? []).map((o) => o.label).join(" | ");
+  let line = `askUser: "${input.question ?? ""}" (${input.kind ?? "single"}: ${options})`;
+  if (output.answered) {
+    const picked = [
+      output.selected?.length ? output.selected.join(", ") : "",
+      output.otherText ? `Other: ${output.otherText}` : "",
+    ]
+      .filter(Boolean)
+      .join("; ");
+    line += ` → ${picked || "(no answer)"}`;
+  }
+  return line;
 }
 
 /** `presentData: bar "Stores by city" (x: city, y: count, result: <id>)` —

@@ -8,6 +8,8 @@
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gt, gte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import type { AskUserAnswer, AskUserInput } from "../../../lib/agent/types";
+import type { RenderToolPart } from "../../../lib/agent/stream-parts";
 import { bundledSkillSource } from "../../../lib/skills/loader";
 import { DEFAULT_MODEL_ALIAS } from "../../constants";
 import { artifacts, messages, runs, threads } from "../../db/schema";
@@ -165,6 +167,137 @@ export const chatRouter = router({
             metadata: { modelAlias: alias, userMessageId },
           });
           return { threadId: tid, runId, userMessageId, reclaimedRunId };
+        })
+        .catch(rethrowLiveRunConflict);
+
+      if (result.reclaimedRunId) publishRunEnd(result.reclaimedRunId);
+      startRun(result.runId);
+      return {
+        threadId: result.threadId,
+        runId: result.runId,
+        userMessageId: result.userMessageId,
+      };
+    }),
+
+  /**
+   * Answer a pending askUser clarification question: patch the stored tool
+   * part with the answer (so the card renders as answered forever), insert a
+   * user message carrying a readable rendering of the answer, and start the
+   * next run exactly like send. See docs/specs/10.
+   */
+  answerQuestion: publicProcedure
+    .input(
+      z.object({
+        messageId: z.uuid(),
+        toolCallId: z.string(),
+        selected: z.array(z.string()),
+        otherText: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      assertNotDraining();
+      const selected = input.selected.map((s) => s.trim()).filter(Boolean);
+      const otherText = input.otherText?.trim() || undefined;
+      if (selected.length === 0 && !otherText) {
+        throw new Error("Pick an option or write an answer.");
+      }
+
+      const result = await ctx.db
+        .transaction(async (tx) => {
+          const message = await tx.query.messages.findFirst({
+            where: and(eq(messages.id, input.messageId), eq(messages.userId, ctx.userId)),
+          });
+          if (!message || message.role !== "assistant") {
+            throw new Error("Message not found.");
+          }
+          const threadId = message.threadId;
+          await lockThread(tx, threadId, ctx.userId);
+
+          // A stale run never blocks an answer; a fresh live run rejects here.
+          const { reclaimedRunId, latestRun } = await claimThreadForRun(tx, threadId);
+
+          // Only the thread's latest message can carry an answerable question.
+          const [latestMessage] = await tx
+            .select({ id: messages.id })
+            .from(messages)
+            .where(eq(messages.threadId, threadId))
+            .orderBy(desc(messages.createdAt))
+            .limit(1);
+          if (latestMessage?.id !== message.id) {
+            throw new Error("This question is no longer answerable.");
+          }
+
+          const parts = (message.parts ?? []) as RenderToolPart[];
+          const partIndex = parts.findIndex(
+            (p) =>
+              p?.kind === "tool" &&
+              p.name === "askUser" &&
+              p.toolCallId === input.toolCallId,
+          );
+          if (partIndex === -1) throw new Error("Question not found.");
+          const part = parts[partIndex];
+          if (part.status !== "running") {
+            throw new Error("This question was already answered.");
+          }
+
+          const question = (part.input ?? {}) as Partial<AskUserInput>;
+          const labels = new Set((question.options ?? []).map((o) => o.label));
+          if (selected.some((s) => !labels.has(s))) {
+            throw new Error("Selected option is not one of the question's choices.");
+          }
+          if (question.kind === "single" && selected.length > 1) {
+            throw new Error("This question takes a single choice.");
+          }
+
+          // Patch the part in place: output + status "done", or the work
+          // block's tool row pulses as running forever.
+          const answer: AskUserAnswer = { answered: true, selected, otherText };
+          const patched = [...parts];
+          patched[partIndex] = { ...part, status: "done", output: answer };
+          await tx
+            .update(messages)
+            .set({ parts: patched })
+            .where(eq(messages.id, message.id));
+
+          // Readable rendering of the answer; history compaction feeds this
+          // to the model unchanged.
+          const pieces: string[] = [];
+          if (selected.length === 1) pieces.push(selected[0]);
+          else if (selected.length > 1) pieces.push(`Selected: ${selected.join(", ")}`);
+          if (otherText) pieces.push(`Other: ${otherText}`);
+          const text = pieces.join("\n");
+
+          const now = new Date();
+          const userMessageId = newId();
+          await tx.insert(messages).values({
+            id: userMessageId,
+            threadId,
+            userId: ctx.userId,
+            role: "user",
+            text,
+            createdAt: now,
+          });
+
+          const alias =
+            latestRun?.modelAlias ?? DEFAULT_MODEL_ALIAS;
+          const runId = await insertRun(tx, {
+            threadId,
+            userId: ctx.userId,
+            modelAlias: alias,
+            userMessageId,
+          });
+          await appendEvent(tx, {
+            runId,
+            threadId,
+            type: "run.started",
+            metadata: {
+              modelAlias: alias,
+              answeredQuestion: true,
+              toolCallId: input.toolCallId,
+              userMessageId,
+            },
+          });
+          return { threadId, runId, userMessageId, reclaimedRunId };
         })
         .catch(rethrowLiveRunConflict);
 

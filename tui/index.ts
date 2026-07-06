@@ -11,7 +11,7 @@
  * or the environment. Without a DB, it falls back to the offline pglite sample
  * data. Slash commands: \tables  \describe <t>  \sql <query>  \skills  \quit
  */
-import { createInterface } from "node:readline/promises";
+import { createInterface, type Interface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 import type { UIMessageChunk } from "ai";
 import { runAnalysisAgent } from "../src/lib/agent/run";
@@ -22,7 +22,12 @@ import { toolLabel, type RenderToolPart } from "../src/lib/agent/stream-parts";
 import { createDiskSkillSource } from "../src/lib/skills/disk";
 import { createNodeExecutor } from "../src/lib/sql/pglite-executor";
 import { getModel, hasRealModel, resolveModelDef } from "../src/lib/models/registry";
-import type { AgentToolDeps, AnalysisRuntimeContext } from "../src/lib/agent/types";
+import type {
+  AgentToolDeps,
+  AnalysisRuntimeContext,
+  AskUserAnswer,
+  AskUserInput,
+} from "../src/lib/agent/types";
 import type { PostgresExecutor } from "../src/lib/sql/executor";
 import type { SkillSource } from "../src/lib/skills/types";
 
@@ -46,7 +51,49 @@ function loadEnv() {
   }
 }
 
-function createTuiDeps(executor: PostgresExecutor, skills: SkillSource): AgentToolDeps {
+/** Inline readline prompt for the askUser tool: pick options by number,
+ * anything non-numeric is the free-text "Other" reply. Unlike the web runtime
+ * (no execute — the run ends at the question), the TUI answers within the
+ * same run. */
+async function promptAskUser(rl: Interface, input: AskUserInput): Promise<AskUserAnswer> {
+  stdout.write(`\n${C.bold}? ${input.question}${C.reset}\n`);
+  input.options.forEach((opt, i) => {
+    stdout.write(
+      `  ${i + 1}. ${opt.label}${opt.description ? ` ${C.gray}— ${opt.description}${C.reset}` : ""}\n`,
+    );
+  });
+  const hint =
+    input.kind === "multi" ? "numbers (e.g. 1,3) and/or free text" : "a number or free text";
+  for (;;) {
+    const raw = (await rl.question(`${C.cyan}answer (${hint}) ›${C.reset} `)).trim();
+    if (!raw) continue;
+    const tokens = raw.split(",").map((t) => t.trim()).filter(Boolean);
+    const selected: string[] = [];
+    const otherPieces: string[] = [];
+    for (const token of tokens) {
+      const n = Number(token);
+      if (Number.isInteger(n) && n >= 1 && n <= input.options.length) {
+        const label = input.options[n - 1].label;
+        if (!selected.includes(label)) selected.push(label);
+      } else {
+        otherPieces.push(token);
+      }
+    }
+    if (input.kind === "single" && selected.length > 1) {
+      stdout.write(`${C.yellow}  pick one option${C.reset}\n`);
+      continue;
+    }
+    const otherText = otherPieces.join(", ") || undefined;
+    if (selected.length === 0 && !otherText) continue;
+    return { answered: true, selected, otherText };
+  }
+}
+
+function createTuiDeps(
+  executor: PostgresExecutor,
+  skills: SkillSource,
+  rl: Interface,
+): AgentToolDeps {
   // Local result registry: runtime-local ids (r1, r2, …) instead of artifact
   // rows, so presentData works without a database.
   const results = new Map<string, { columns: string[]; rowCount: number }>();
@@ -83,6 +130,7 @@ function createTuiDeps(executor: PostgresExecutor, skills: SkillSource): AgentTo
       stdout.write(`${C.gray}   ⛁ saved ${type} artifact: ${title}${C.reset}\n`);
       return { id: `tui-${Date.now()}` };
     },
+    askUser: (input) => promptAskUser(rl, input),
   };
 }
 
@@ -98,6 +146,17 @@ function summarizeTool(part: RenderToolPart): string {
     const title = (part.input as { title?: string } | undefined)?.title ?? "";
     if (output.ok !== true) return `presentData failed: ${output.error ?? "error"}`;
     return `[view: ${output.view?.type} "${title}"]`;
+  }
+  if (part.name === "askUser") {
+    const input = (part.input ?? {}) as Partial<AskUserInput>;
+    const output = (part.output ?? {}) as Partial<AskUserAnswer>;
+    const answer = [
+      output.selected?.length ? output.selected.join(", ") : "",
+      output.otherText ? `Other: ${output.otherText}` : "",
+    ]
+      .filter(Boolean)
+      .join("; ");
+    return `askUser "${input.question ?? ""}" → ${answer || "(no answer)"}`;
   }
   return toolLabel(part);
 }
@@ -117,11 +176,10 @@ async function main() {
     `${C.gray}Ask a question, or: \\tables  \\describe <t>  \\sql <query>  \\skills  \\quit${C.reset}\n\n`,
   );
 
-  const deps = createTuiDeps(executor, skills);
+  const rl = createInterface({ input: stdin, output: stdout });
+  const deps = createTuiDeps(executor, skills, rl);
   const instructions = buildInstructions(skills.list());
   const history: CompactTurn[] = [];
-
-  const rl = createInterface({ input: stdin, output: stdout });
 
   for (;;) {
     const line = (await rl.question(`${C.cyan}you ›${C.reset} `)).trim();

@@ -9,12 +9,16 @@ export type EvalCategory =
   | "missing"
   | "ambiguity"
   | "unavailable"
-  | "chart";
+  | "chart"
+  | "clarify";
 
 export type EvalPrompt = {
   prompt: string;
   category: EvalCategory;
   expect: string;
+  /** clarify category: whether the agent should call askUser (true) or answer
+   * without asking (false). */
+  expectAsk?: boolean;
 };
 
 export const EVAL_PROMPTS: EvalPrompt[] = [
@@ -54,4 +58,8 @@ export const EVAL_PROMPTS: EvalPrompt[] = [
   { prompt: "Rank the cities by store count.", category: "chart", expect: "Charts the ranking unprompted: presentData bar view from the grouped result." },
   { prompt: "Show a table of malls and their city.", category: "joins", expect: "Table output; no chart needed." },
   { prompt: "What is the average number of stores per mall by city?", category: "counting", expect: "City-level average; two-level aggregation." },
+
+  // Clarification questions (askUser)
+  { prompt: "How many stores opened recently?", category: "clarify", expectAsk: true, expect: "Asks ONE askUser question (e.g. which timeframe 'recently' means) instead of guessing; no SQL needed before asking." },
+  { prompt: "How many malls are in 北京市?", category: "clarify", expectAsk: false, expect: "Clear request — answers with a query, without calling askUser." },
 ];

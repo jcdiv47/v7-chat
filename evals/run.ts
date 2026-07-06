@@ -33,6 +33,8 @@ function loadEnv() {
 type Capture = {
   sql: string[];
   chartSaved: boolean;
+  /** The agent called askUser (execute-less here, so the run ends on it). */
+  asked: boolean;
   answer: string;
 };
 
@@ -74,8 +76,19 @@ function score(p: EvalPrompt, cap: Capture): { pass: boolean; note: string } {
     return { pass: acknowledges, note: acknowledges ? "acknowledges missing data" : "did not clearly state data is unavailable" };
   }
   if (p.category === "ambiguity") {
+    // Asking one clarification question is as good as a labeled proxy answer.
+    if (cap.asked) return { pass: true, note: "asked a clarification question" };
     const hedges = /(ambig|assum|proxy|clarif|depend|interpret|not clear|no.*metric)/.test(answer);
     return { pass: hedges && ranSql, note: hedges ? "notes ambiguity" : "did not flag ambiguity" };
+  }
+  if (p.category === "clarify") {
+    if (p.expectAsk) {
+      return { pass: cap.asked, note: cap.asked ? "asked instead of guessing" : "guessed instead of asking" };
+    }
+    return {
+      pass: !cap.asked && ranSql,
+      note: cap.asked ? "asked on a clear request" : ranSql ? "answered without asking" : "no SQL run",
+    };
   }
   if (p.category === "chart") {
     return { pass: cap.chartSaved && ranSql, note: cap.chartSaved ? "presentData view saved" : "no presentData view saved" };
@@ -122,13 +135,14 @@ async function main() {
 
   const results: Array<{ p: EvalPrompt; pass: boolean; note: string; cap: Capture }> = [];
   for (const p of prompts) {
-    const cap: Capture = { sql: [], chartSaved: false, answer: "" };
+    const cap: Capture = { sql: [], chartSaved: false, asked: false, answer: "" };
     const deps = evalDeps(executor, skills, cap);
     const tools = createAgentTools(deps);
     const textParts: string[] = [];
     const rc: AnalysisRuntimeContext = { requestId: "eval", runId: "eval", threadId: "eval", userId: "eval", modelAlias: "analyst", activeSkillNames: skills.list().map((s) => s.name), loadedSkillNames: [], skillsVersion: skills.version };
     const onChunk = (c: UIMessageChunk) => {
       if (c.type === "text-delta") textParts.push(c.delta);
+      if (c.type === "tool-input-available" && c.toolName === "askUser") cap.asked = true;
     };
     try {
       await runAnalysisAgent({ model: getModel("analyst"), temperature: def.temperature, maxOutputTokens: def.maxOutputTokens, reasoning: def.reasoning, instructions: buildInstructions(skills.list()), messages: [{ role: "user", content: p.prompt }], tools, maxSteps: 12, runtimeContext: rc, onChunk });

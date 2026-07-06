@@ -31,7 +31,7 @@ import type { AnalysisRuntimeContext, ModelAlias } from "../lib/agent/types";
 import { MAX_STEPS, RUN_TIMEOUTS } from "./constants";
 import { createChunkWriter } from "./chunk-writer";
 import { getDb } from "./db/client";
-import { runs } from "./db/schema";
+import { messages as messagesTable, runs } from "./db/schema";
 import { runDemoAnalysis } from "./demo";
 import {
   appendEvent,
@@ -130,10 +130,17 @@ async function driveRun(runId: string, abortSignal: AbortSignal): Promise<void> 
 
   try {
     if (!hasRealModel()) {
+      // The demo script branches on the user's text (keyword triggers).
+      const userMessage = run.userMessageId
+        ? await db.query.messages.findFirst({
+            where: eq(messagesTable.id, run.userMessageId),
+          })
+        : undefined;
       const demo = await runDemoAnalysis({
         onChunk,
         saveArtifact: deps.saveArtifact,
         beforeStep,
+        userText: userMessage?.text,
       });
       result = { ...demo, usage: undefined, errorText: demo.errorText };
     } else {

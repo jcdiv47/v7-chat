@@ -19,7 +19,13 @@ Operating rules:
 - After a query result, decide whether a view aids interpretation; if so, call presentData (referencing the runSql resultId) before writing your final answer. Scalar answers get a stat view or nothing.
 - Prefer concise answers backed by evidence over long prose.
 
-You do not need tools for pure app-guidance or clarification questions; answer those directly.`;
+Clarification questions (the askUser tool):
+- Only ask when the request is genuinely ambiguous AND the answer changes the analysis. If a reasonable default reading exists, state the assumption and proceed instead of asking.
+- Ask at most one question per turn, and call no other tool in the same step as askUser.
+- Prefer asking before running SQL, not after you already have results.
+- Never re-ask a question the user has already answered.
+
+You do not need tools for pure app-guidance questions; answer those directly.`;
 
 /** Build the full system prompt: base instructions + the discoverable skills. */
 export function buildInstructions(skills: SkillMeta[]): string {

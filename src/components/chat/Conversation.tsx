@@ -44,6 +44,7 @@ export function Conversation({
   const sendMessage = trpc.chat.send.useMutation();
   const retryLast = trpc.chat.retry.useMutation();
   const editAndRerun = trpc.chat.editAndRerun.useMutation();
+  const answerQuestion = trpc.chat.answerQuestion.useMutation();
   const requestStop = trpc.runs.stop.useMutation();
 
   /** Refresh everything a finished or newly created run can have changed. */
@@ -179,6 +180,17 @@ export function Conversation({
     refreshThread();
   };
 
+  const handleAnswerQuestion = async (
+    messageId: string,
+    toolCallId: string,
+    selected: string[],
+    otherText?: string,
+  ) => {
+    await answerQuestion.mutateAsync({ messageId, toolCallId, selected, otherText });
+    setAtBottom(true);
+    refreshThread();
+  };
+
   const handleStop = () => {
     if (latestRun) {
       requestStop.mutate(
@@ -229,6 +241,12 @@ export function Conversation({
                   durationMs={m.durationMs ?? undefined}
                   failed={m.status === "failed"}
                   text={m.text}
+                  canAnswerQuestion={
+                    !running && m.id === messages[messages.length - 1]?.id
+                  }
+                  onAnswerQuestion={(toolCallId, selected, otherText) =>
+                    handleAnswerQuestion(m.id, toolCallId, selected, otherText)
+                  }
                 />
               ),
             )}
@@ -424,11 +442,19 @@ function AssistantMessage({
   durationMs,
   failed,
   text,
+  canAnswerQuestion,
+  onAnswerQuestion,
 }: {
   parts: RenderPart[];
   durationMs?: number;
   failed?: boolean;
   text: string;
+  canAnswerQuestion?: boolean;
+  onAnswerQuestion?: (
+    toolCallId: string,
+    selected: string[],
+    otherText?: string,
+  ) => Promise<void>;
 }) {
   const { copied, copy } = useCopy(text);
   return (
@@ -438,6 +464,8 @@ function AssistantMessage({
         streaming={false}
         durationMs={durationMs}
         error={failed && !text ? "This run failed." : undefined}
+        canAnswerQuestion={canAnswerQuestion}
+        onAnswerQuestion={onAnswerQuestion}
       />
       <div className="mt-1.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         <ActionButton title={copied ? "Copied" : "Copy"} onClick={copy}>

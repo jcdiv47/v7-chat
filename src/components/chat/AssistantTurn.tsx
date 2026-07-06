@@ -10,10 +10,14 @@ import type {
 import type { PresentDataOutput } from "@/lib/agent/ui-spec";
 import { DataView } from "@/components/artifacts/DataView";
 import { Markdown } from "./Markdown";
+import { QuestionCard } from "./QuestionCard";
 import { WorkBlock } from "./WorkBlock";
 
 const isView = (p: RenderPart): p is RenderToolPart =>
   p.kind === "tool" && p.name === "presentData";
+
+const isAskUser = (p: RenderPart): p is RenderToolPart =>
+  p.kind === "tool" && p.name === "askUser";
 
 /** The trailing run of text parts is the final answer; everything before it
  * (reasoning, tool calls, intermediate text) is "work" shown in the WorkBlock.
@@ -29,7 +33,19 @@ function splitParts(parts: RenderPart[]): {
   views: RenderToolPart[];
   finalText: string;
   hasFinal: boolean;
+  question: RenderToolPart | null;
 } {
+  // Peel the trailing askUser call (looking past trailing text/views) into a
+  // dedicated QuestionCard; a non-trailing askUser (parallel-call edge case)
+  // stays in the work block as an inert row.
+  let question: RenderToolPart | null = null;
+  let j = parts.length;
+  while (j > 0 && (parts[j - 1].kind === "text" || isView(parts[j - 1]))) j--;
+  if (j > 0 && isAskUser(parts[j - 1])) {
+    question = parts[j - 1] as RenderToolPart;
+    parts = [...parts.slice(0, j - 1), ...parts.slice(j)];
+  }
+
   let i = parts.length;
   while (i > 0 && (parts[i - 1].kind === "text" || isView(parts[i - 1]))) i--;
   const work = parts.slice(0, i).filter((p) => !isView(p));
@@ -38,7 +54,7 @@ function splitParts(parts: RenderPart[]): {
   const finalText = trailingText
     .map((p) => (p as RenderTextPart).text)
     .join("\n\n");
-  return { work, views, finalText, hasFinal: trailingText.length > 0 };
+  return { work, views, finalText, hasFinal: trailingText.length > 0, question };
 }
 
 export function AssistantTurn({
@@ -47,6 +63,8 @@ export function AssistantTurn({
   durationMs,
   workStartedAt,
   error,
+  canAnswerQuestion = false,
+  onAnswerQuestion,
 }: {
   parts: RenderPart[];
   streaming: boolean;
@@ -56,8 +74,16 @@ export function AssistantTurn({
    * mid-stream, before the persisted durationMs exists. */
   workStartedAt?: number;
   error?: string;
+  /** True when this is the thread's latest message and no run is live, so a
+   * pending askUser question is answerable. */
+  canAnswerQuestion?: boolean;
+  onAnswerQuestion?: (
+    toolCallId: string,
+    selected: string[],
+    otherText?: string,
+  ) => Promise<void>;
 }) {
-  const { work, views, finalText, hasFinal } = splitParts(parts);
+  const { work, views, finalText, hasFinal, question } = splitParts(parts);
   const working = streaming && !hasFinal;
 
   // Freeze the elapsed time the moment work completes, so the collapsed header
@@ -97,6 +123,21 @@ export function AssistantTurn({
         <div className="pt-1">
           <Markdown>{finalText}</Markdown>
         </div>
+      )}
+
+      {question && (
+        <QuestionCard
+          part={question}
+          interactive={Boolean(
+            canAnswerQuestion && question.status === "running" && onAnswerQuestion,
+          )}
+          onSubmit={
+            onAnswerQuestion
+              ? (selected, otherText) =>
+                  onAnswerQuestion(question.toolCallId, selected, otherText)
+              : undefined
+          }
+        />
       )}
 
       {error && (

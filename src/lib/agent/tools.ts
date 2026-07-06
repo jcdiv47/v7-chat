@@ -6,7 +6,7 @@
  */
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
-import type { AgentToolDeps, ArtifactType } from "./types";
+import type { AgentToolDeps, ArtifactType, AskUserInput } from "./types";
 import {
   formatViewSpecError,
   normalizeViewInput,
@@ -28,6 +28,26 @@ export const ARTIFACT_TYPES = [
 /** Types the model may save directly; sql/table are auto-saved by runSql and
  * view by presentData. (chartSpec is legacy — superseded by presentData.) */
 const SAVEABLE_ARTIFACT_TYPES = ["finding", "error"] as const;
+
+const ASK_USER_TOOL_CONFIG = {
+  description:
+    "Ask the user ONE clarification question when the request is genuinely " +
+    "ambiguous and the answer changes what you'd do. Prefer asking before " +
+    "running queries, not after. Do not call any other tool in the same step.",
+  inputSchema: z.object({
+    question: z.string().describe("The single clarification question to ask."),
+    kind: z.enum(["single", "multi"]),
+    options: z
+      .array(
+        z.object({
+          label: z.string(),
+          description: z.string().optional(),
+        }),
+      )
+      .min(2)
+      .max(5),
+  }),
+};
 
 export function createAgentTools(deps: AgentToolDeps): ToolSet {
   // resultIds produced by this turn's runSql calls, powering presentData's
@@ -138,6 +158,15 @@ export function createAgentTools(deps: AgentToolDeps): ToolSet {
       },
     }),
 
+    // Without an askUser dep there is deliberately no execute: the tool loop
+    // stops at the question and the user's answer starts the next run.
+    askUser: deps.askUser
+      ? tool({
+          ...ASK_USER_TOOL_CONFIG,
+          execute: async (input: AskUserInput) => deps.askUser!(input),
+        })
+      : tool(ASK_USER_TOOL_CONFIG),
+
     saveArtifact: tool({
       description:
         "Save an analysis artifact so the user can inspect it. Use type 'finding' " +
@@ -165,5 +194,6 @@ export const AGENT_TOOL_NAMES = [
   "describeTable",
   "runSql",
   "presentData",
+  "askUser",
   "saveArtifact",
 ] as const;

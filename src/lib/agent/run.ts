@@ -152,8 +152,14 @@ export async function runAnalysisAgent(
     experimental_repairToolCall: repairTruncatedToolCall,
     runtimeContext: opts.runtimeContext as Record<string, unknown>,
     prepareStep: async ({ stepNumber }) => {
-      // stepNumber is zero-based; the last allowed step gets no tools plus a
-      // wrap-up notice, forcing a final answer instead of a truncated tool loop.
+      // stepNumber is zero-based; the last allowed step forbids tool calls
+      // (plus a wrap-up notice), forcing a final answer instead of a truncated
+      // tool loop. toolChoice "none" rather than activeTools []: the tool
+      // definitions must stay with the request, because a model that has
+      // called tools all run may emit one more call anyway — with the
+      // definitions gone the SDK escalates that to a fatal NoSuchToolError,
+      // failing the whole run; with them present it degrades to one ordinary
+      // tool step before stopWhen ends the loop.
       const finalStep = stepNumber >= opts.maxSteps - 1;
       await opts.onEvent?.({
         type: "step.started",
@@ -169,7 +175,7 @@ export async function runAnalysisAgent(
       }
       if (finalStep) {
         return {
-          activeTools: [],
+          toolChoice: "none" as const,
           instructions: opts.instructions + FINAL_STEP_NOTICE,
         };
       }

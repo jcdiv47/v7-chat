@@ -1,7 +1,7 @@
 # 10 Clarification Question Tool
 
-Status: Planned (not started)  
-Last updated: 2026-07-05
+Status: Implemented (Phases A–D)  
+Last updated: 2026-07-06
 
 An `askUser` agent tool for human-in-the-loop clarification: when a request is
 genuinely ambiguous, the agent asks one single-choice or multi-choice question,
@@ -205,10 +205,12 @@ Models overuse escape-hatch tools without this.
 - **Queued messages**: a question ends the run, so the queued-message dispatch
   in `Conversation.tsx` fires and the queued text becomes the de-facto answer
   turn; the card flips to Skipped. Acceptable V1 behavior.
-- **Final step**: `prepareStep` (`src/lib/agent/run.ts`) disables all tools on
-  the last allowed step, so the model can never end its final step on a
-  question — it is forced to give a best-effort answer instead. Desirable;
-  leave it.
+- **Final step**: `prepareStep` (`src/lib/agent/run.ts`) sets
+  `toolChoice: "none"` on the last allowed step (tool definitions stay with
+  the request — removing them via `activeTools: []` made a defiant last-step
+  tool call a fatal `NoSuchToolError`), so the model can never end its final
+  step on a question — it is forced to give a best-effort answer instead.
+  Desirable; leave it.
 - **Run events**: the `onToolExecutionStart/End` lifecycle callbacks never
   fire for an execute-less tool, so `askUser` produces no
   `tool.started`/`tool.finished` run_events. `toolCallCount` still counts it
