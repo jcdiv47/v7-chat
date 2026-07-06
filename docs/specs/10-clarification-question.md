@@ -1,12 +1,13 @@
 # 10 Clarification Question Tool
 
-Status: Implemented (Phases A–D)  
+Status: Implemented (Phases A–D, plus batched questions)  
 Last updated: 2026-07-06
 
 An `askUser` agent tool for human-in-the-loop clarification: when a request is
-genuinely ambiguous, the agent asks one single-choice or multi-choice question,
-the UI renders it as a dedicated interactive card, and the user's answer
-(an option pick or a free-text "Other" reply) drives the next run.
+genuinely ambiguous, the agent batches every clarification it needs into one
+call (1–3 single-choice or multi-choice questions), the UI renders them as one
+dedicated interactive card with a single submit, and the user's answers
+(option picks and/or free-text "Other" replies) drive the next run.
 
 ## Core Decision: End The Run At The Question
 
@@ -59,6 +60,20 @@ Consequences:
   patch **both** `output` and `status: "done"`, or the work block's tool row
   pulses as running forever.
 
+## Core Decision: Batch Questions Into One Call, Not N Calls
+
+The agent may need more than one clarification (timeframe *and* scope). Two
+shapes were considered: multiple `askUser` tool calls in one step, or one call
+carrying a `questions` array. **Decision: one call, `questions: [...]` (1–3).**
+
+Answering independently-submitted questions breaks under this architecture:
+`answerQuestion` atomically patches the part, inserts the answer message, and
+starts the next run — guarded by `one_live_run_per_thread` — so the first
+submit would lock the thread and strand the remaining questions. Batching the
+submits is forced anyway; one tool call means one `toolCallId`, one patched
+`output`, one rendered user message, one new run, and everything downstream
+(compaction, skipped-state logic, edit/retry) stays single-part.
+
 ## Tool Contract
 
 In `src/lib/agent/tools.ts`:
@@ -66,45 +81,66 @@ In `src/lib/agent/tools.ts`:
 ```ts
 askUser: tool({
   description:
-    "Ask the user ONE clarification question when the request is genuinely " +
-    "ambiguous and the answer changes what you'd do. Prefer asking before " +
-    "running queries, not after. Do not call any other tool in the same step.",
+    "Ask the user clarification questions when the request is genuinely " +
+    "ambiguous and the answers change what you'd do. Batch every " +
+    "clarification you need into ONE call (up to 3 questions). Prefer asking " +
+    "before running queries, not after. Do not call any other tool in the " +
+    "same step.",
   inputSchema: z.object({
-    question: z.string(),
-    kind: z.enum(["single", "multi"]),
-    options: z
+    questions: z
       .array(
         z.object({
-          label: z.string(),
-          description: z.string().optional(),
+          question: z.string(),
+          kind: z.enum(["single", "multi"]),
+          options: z
+            .array(
+              z.object({
+                label: z.string(),
+                description: z.string().optional(),
+              }),
+            )
+            .min(2)
+            .max(5),
         }),
       )
-      .min(2)
-      .max(5),
+      .min(1)
+      .max(3),
   }),
-  // web runtime: no execute — the loop stops; the answer arrives as the next turn
+  // web runtime: no execute — the loop stops; the answers arrive as the next turn
 })
 ```
 
 Because tool definitions are shared with the TUI, `execute` is conditional on
-the deps: `AgentToolDeps` gains an optional
+the deps: `AgentToolDeps` has an optional
 `askUser?(input): Promise<AskUserAnswer>`. The web runtime omits it
-(stop-and-wait); the TUI provides a synchronous readline prompt. Both runtimes
-keep identical tool schemas.
+(stop-and-wait); the TUI provides a readline prompt that asks each question in
+order. Both runtimes keep identical tool schemas.
 
 The recorded answer shape (written into the part's `output` by the answer
-mutation, and returned by the TUI implementation):
+mutation, and returned by the TUI implementation), aligned by index with the
+input's `questions`:
 
 ```ts
-type AskUserAnswer = {
-  answered: true;
-  /** Labels of the chosen options (single-choice: length 1). Empty when the
+type QuestionAnswer = {
+  /** Labels of the chosen options (single-choice: length ≤ 1). Empty when the
    * user answered purely via free text. */
   selected: string[];
   /** Free-text "Other" reply, standalone or alongside selections. */
   otherText?: string;
 };
+
+type AskUserAnswer = {
+  answered: true;
+  answers: QuestionAnswer[];
+};
 ```
+
+**Legacy shape.** Parts persisted before batching carry a flat
+single-question input (`{ question, kind, options }`) and a flat answer
+(`{ answered, selected, otherText }`). These are normalized on read —
+`normalizeAskUserQuestions` / `normalizeAskUserAnswers` in
+`src/lib/agent/types.ts` — everywhere a part is consumed (card, compaction,
+answer mutation, TUI), so no message migration is needed.
 
 ## Answer Flow
 
@@ -112,22 +148,26 @@ One new tRPC mutation, `chat.answerQuestion`
 (`src/server/trpc/routers/chat.ts`):
 
 ```
-answerQuestion({ messageId, toolCallId, selected: string[], otherText?: string })
+answerQuestion({ messageId, toolCallId, answers: { selected: string[], otherText?: string }[] })
 ```
 
 1. Validates: the message is the thread's latest, the `askUser` part matching
-   `toolCallId` exists and is unanswered, at least one of
-   `selected`/`otherText` is non-empty, and no live run exists (reusing the
-   stale-run reclaim in `claimThreadForRun` so a stale run never blocks an
-   answer).
+   `toolCallId` exists and is unanswered, `answers` aligns one-to-one with the
+   stored `questions`, **every** answer has a selection or `otherText` (all
+   questions must be answered — the agent asked because it needs them),
+   selections are real option labels, single-choice questions get at most one
+   pick, and no live run exists (reusing the stale-run reclaim in
+   `claimThreadForRun` so a stale run never blocks an answer).
 2. Patches the stored assistant message's `askUser` part (a read-modify-write
    of the `messages.parts` jsonb inside the transaction) with the
    `AskUserAnswer` output and `status: "done"`, so the card renders as
    answered forever without deriving state from neighboring messages.
-3. Inserts a user message whose `text` is a readable rendering of the answer
-   (e.g. `Last 30 days`, `Selected: A, B`, or `Other: <free text>` — combined
-   when both are present). History compaction feeds this to the model
-   unchanged, so `buildModelMessages` needs no modification.
+3. Inserts a user message whose `text` is a readable rendering of the answers.
+   One question renders the bare answer (e.g. `Last 30 days`,
+   `Selected: A, B; Other: <free text>`); multiple questions render one
+   `<question> — <answer>` line each, so every pair reads unambiguously.
+   History compaction feeds this to the model unchanged, so
+   `buildModelMessages` needs no modification.
 4. Creates the next run exactly like `chat.send` does, following the
    established transaction pattern: `assertNotDraining` → `lockThread` →
    `claimThreadForRun` → insert the answer message → `insertRun` →
@@ -139,16 +179,19 @@ answerQuestion({ messageId, toolCallId, selected: string[], otherText?: string }
 
 ## History Compaction
 
-`buildToolLines` (`src/lib/agent/stream-parts.ts`) gains an `askUser` case that
-includes the full question and options, e.g.:
+`buildToolLines` (`src/lib/agent/stream-parts.ts`) has an `askUser` case that
+emits one line per question with its full options (an answered part appends
+the picks after `→`):
 
 ```
-askUser: "Which timeframe?" (single: Last 7 days | Last 30 days | All time)
+askUser 1/2: "Which timeframe?" (single: Last 7 days | Last 30 days | All time)
+askUser 2/2: "Which cities?" (multi: 上海市 | 北京市 | 深圳市 | All cities)
 ```
 
-The following user turn carries the answer, so on the next run the model sees a
-coherent Q→A exchange. `toolLabel` gains a case too (`Asked a question` /
-truncated question text) for the folded work-block row.
+(A single question drops the `1/1` counter.) The following user turn carries
+the answers, so on the next run the model sees a coherent Q→A exchange.
+`toolLabel` has a case too for the folded work-block row: the first question,
+truncated, plus `(+N more)` when batched.
 
 ## UI Rendering
 
@@ -158,16 +201,22 @@ Instead, peel a trailing `askUser` tool part off and render a dedicated
 `QuestionCard` (`src/components/chat/QuestionCard.tsx`) below the work block /
 final text.
 
+Layout: the card renders the questions as **stacked sections** (numbered, with
+dividers, when there is more than one) and **one submit button** — not tabs or
+a stepper. Tabs hide required inputs and give no signal of which questions are
+still unanswered; 2–3 short choice questions fit in one scroll, so hiding them
+buys nothing. Each section is an option list (radio for `single`, checkboxes
+for `multi`) plus its own free-text **"Other"** input.
+
 Card states:
 
 - **Pending** (interactive): only when it is the thread's latest message,
-  unanswered, and no run is live. Radio buttons for `single`, checkboxes for
-  `multi`, a free-text **"Other"** input (always shown; usable standalone or —
-  for `multi` — alongside checked options), and a submit button that calls
-  `answerQuestion`. Submit enabled when at least one option is selected or the
-  Other field is non-empty.
-- **Answered**: chosen options highlighted, Other text shown, controls
-  disabled. Read from the patched part output.
+  unanswered, and no run is live. The single submit button calls
+  `answerQuestion` and is enabled only when **every** question has a selected
+  option or a non-empty Other field; with multiple questions its label shows
+  progress (`Answer (1/2)`).
+- **Answered**: chosen options highlighted per section, Other text shown,
+  controls disabled. Read from the patched part output.
 - **Skipped**: unanswered but no longer answerable (a newer message exists) —
   rendered dimmed and disabled.
 
@@ -185,10 +234,11 @@ card.
 
 ## Instructions
 
-`src/lib/agent/instructions.ts` gains guardrails: at most one question per
-turn; only ask when the ambiguity actually changes the analysis; never re-ask
-an answered question; prefer asking before running SQL rather than after.
-Models overuse escape-hatch tools without this.
+`src/lib/agent/instructions.ts` gains guardrails: batch every clarification
+into a single `askUser` call (up to 3 questions), at most one call per turn;
+only ask when the ambiguity actually changes the analysis; never re-ask an
+answered question; prefer asking before running SQL rather than after. Models
+overuse escape-hatch tools without this.
 
 ## Edge Cases
 
@@ -216,11 +266,10 @@ Models overuse escape-hatch tools without this.
   `tool.started`/`tool.finished` run_events. `toolCallCount` still counts it
   (incremented on `tool-input-available` in the worker). Acceptable
   observability gap.
-- **Demo mode**: `MODEL_PROVIDER=mock` must exercise the card. Add a scripted
-  question to `src/server/demo.ts` (triggered by a keyword such as
-  "ambiguous") emitting the real chunk sequence. `runDemoAnalysis` currently
-  never sees the user's message, so the trigger requires threading the user
-  text through its options.
+- **Demo mode**: `MODEL_PROVIDER=mock` must exercise the card. The scripted
+  question turn in `src/server/demo.ts` (triggered by the keyword "ambiguous"
+  in the user's message) emits the real chunk sequence with a two-question
+  batch (a `single` and a `multi`), so the stacked card is exercised offline.
 
 ## Implementation Phases
 
@@ -276,7 +325,10 @@ model provider; TUI answers inline; both eval prompts pass.
 
 ## Out Of Scope (Later)
 
-- Multiple questions per turn / question queues.
+- More than 3 questions per call, question queues across turns, or a stepper
+  UI for long question lists.
+- Per-question skipping in a batch (v1 requires every question answered
+  before submit).
 - A dedicated `awaiting_input` run status (revisit only if product needs
   timeout-and-proceed behavior).
 - Timeout or default-answer semantics for abandoned questions.

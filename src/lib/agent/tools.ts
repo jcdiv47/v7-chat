@@ -31,21 +31,30 @@ const SAVEABLE_ARTIFACT_TYPES = ["finding", "error"] as const;
 
 const ASK_USER_TOOL_CONFIG = {
   description:
-    "Ask the user ONE clarification question when the request is genuinely " +
-    "ambiguous and the answer changes what you'd do. Prefer asking before " +
-    "running queries, not after. Do not call any other tool in the same step.",
+    "Ask the user clarification questions when the request is genuinely " +
+    "ambiguous and the answers change what you'd do. Batch every " +
+    "clarification you need into ONE call (up to 3 questions). Prefer asking " +
+    "before running queries, not after. Do not call any other tool in the " +
+    "same step.",
   inputSchema: z.object({
-    question: z.string().describe("The single clarification question to ask."),
-    kind: z.enum(["single", "multi"]),
-    options: z
+    questions: z
       .array(
         z.object({
-          label: z.string(),
-          description: z.string().optional(),
+          question: z.string().describe("One clarification question."),
+          kind: z.enum(["single", "multi"]),
+          options: z
+            .array(
+              z.object({
+                label: z.string(),
+                description: z.string().optional(),
+              }),
+            )
+            .min(2)
+            .max(5),
         }),
       )
-      .min(2)
-      .max(5),
+      .min(1)
+      .max(3),
   }),
 };
 

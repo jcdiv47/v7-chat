@@ -8,6 +8,7 @@ import type {
   RenderToolPart,
 } from "@/lib/agent/stream-parts";
 import type { PresentDataOutput } from "@/lib/agent/ui-spec";
+import type { QuestionAnswer } from "@/lib/agent/types";
 import { DataView } from "@/components/artifacts/DataView";
 import { Markdown } from "./Markdown";
 import { QuestionCard } from "./QuestionCard";
@@ -79,8 +80,7 @@ export function AssistantTurn({
   canAnswerQuestion?: boolean;
   onAnswerQuestion?: (
     toolCallId: string,
-    selected: string[],
-    otherText?: string,
+    answers: QuestionAnswer[],
   ) => Promise<void>;
 }) {
   const { work, views, finalText, hasFinal, question } = splitParts(parts);
@@ -133,8 +133,7 @@ export function AssistantTurn({
           )}
           onSubmit={
             onAnswerQuestion
-              ? (selected, otherText) =>
-                  onAnswerQuestion(question.toolCallId, selected, otherText)
+              ? (answers) => onAnswerQuestion(question.toolCallId, answers)
               : undefined
           }
         />

@@ -66,24 +66,77 @@ export type LoadSkillOutput = {
   content: string;
 };
 
-/** Input for the `askUser` clarification-question tool. */
-export type AskUserInput = {
+/** One clarification question inside an `askUser` call. */
+export type AskUserQuestion = {
   question: string;
   kind: "single" | "multi";
   options: { label: string; description?: string }[];
 };
 
-/** The recorded answer to an `askUser` question — written into the tool
- * part's `output` by the answer mutation (web) or returned by the readline
- * prompt (TUI). */
-export type AskUserAnswer = {
-  answered: true;
-  /** Labels of the chosen options (single-choice: length 1). Empty when the
+/** Input for the `askUser` clarification-question tool: the agent batches
+ * every clarification it needs into one call (1–3 questions). */
+export type AskUserInput = {
+  questions: AskUserQuestion[];
+};
+
+/** The user's answer to one question. */
+export type QuestionAnswer = {
+  /** Labels of the chosen options (single-choice: length ≤ 1). Empty when the
    * user answered purely via free text. */
   selected: string[];
   /** Free-text "Other" reply, standalone or alongside selections. */
   otherText?: string;
 };
+
+/** The recorded answer to an `askUser` call — written into the tool part's
+ * `output` by the answer mutation (web) or returned by the readline prompt
+ * (TUI). `answers` aligns by index with the input's `questions`. */
+export type AskUserAnswer = {
+  answered: true;
+  answers: QuestionAnswer[];
+};
+
+/** Normalize an `askUser` part input to the questions array, accepting the
+ * legacy single-question flat shape ({ question, kind, options }) persisted
+ * in message parts before questions were batched. */
+export function normalizeAskUserQuestions(input: unknown): AskUserQuestion[] {
+  if (!input || typeof input !== "object") return [];
+  const obj = input as { questions?: unknown; question?: unknown };
+  if (Array.isArray(obj.questions)) return obj.questions as AskUserQuestion[];
+  if (typeof obj.question === "string") {
+    const legacy = input as {
+      question: string;
+      kind?: "single" | "multi";
+      options?: AskUserQuestion["options"];
+    };
+    return [
+      {
+        question: legacy.question,
+        kind: legacy.kind ?? "single",
+        options: legacy.options ?? [],
+      },
+    ];
+  }
+  return [];
+}
+
+/** Normalize an `askUser` part output to per-question answers, accepting the
+ * legacy flat shape ({ answered, selected, otherText }). Undefined while the
+ * question is unanswered. */
+export function normalizeAskUserAnswers(
+  output: unknown,
+): QuestionAnswer[] | undefined {
+  if (!output || typeof output !== "object") return undefined;
+  const obj = output as {
+    answered?: boolean;
+    answers?: QuestionAnswer[];
+    selected?: string[];
+    otherText?: string;
+  };
+  if (!obj.answered) return undefined;
+  if (Array.isArray(obj.answers)) return obj.answers;
+  return [{ selected: obj.selected ?? [], otherText: obj.otherText }];
+}
 
 /** LEGACY: the pre-`presentData` chart spec, kept only so existing
  * `chartSpec` artifacts still render through the panel's old path. New views

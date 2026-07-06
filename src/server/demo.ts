@@ -63,15 +63,30 @@ function chunkText(text: string, size = 24): string[] {
 
 const QUESTION_REASONING =
   "This is the offline demo runner. The request looks ambiguous, so I'll ask " +
-  "one clarification question and stop — the answer starts the next run.";
+  "clarification questions (batched into one call) and stop — the answers " +
+  "start the next run.";
 
 const QUESTION_INPUT: AskUserInput = {
-  question: "Which timeframe should the analysis cover?",
-  kind: "single",
-  options: [
-    { label: "Last 7 days", description: "Recent activity only" },
-    { label: "Last 30 days", description: "A month of activity" },
-    { label: "All time" },
+  questions: [
+    {
+      question: "Which timeframe should the analysis cover?",
+      kind: "single",
+      options: [
+        { label: "Last 7 days", description: "Recent activity only" },
+        { label: "Last 30 days", description: "A month of activity" },
+        { label: "All time" },
+      ],
+    },
+    {
+      question: "Which cities should be included?",
+      kind: "multi",
+      options: [
+        { label: "上海市" },
+        { label: "北京市" },
+        { label: "深圳市" },
+        { label: "All cities" },
+      ],
+    },
   ],
 };
 

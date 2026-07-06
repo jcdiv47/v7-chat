@@ -5,6 +5,7 @@ import { ArrowDown, Copy, Pencil, RotateCcw, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import type { RenderPart } from "@/lib/agent/stream-parts";
+import type { QuestionAnswer } from "@/lib/agent/types";
 import { AssistantTurn } from "./AssistantTurn";
 import { Composer, type ModelAlias } from "./Composer";
 import { EmptyState } from "./EmptyState";
@@ -183,10 +184,9 @@ export function Conversation({
   const handleAnswerQuestion = async (
     messageId: string,
     toolCallId: string,
-    selected: string[],
-    otherText?: string,
+    answers: QuestionAnswer[],
   ) => {
-    await answerQuestion.mutateAsync({ messageId, toolCallId, selected, otherText });
+    await answerQuestion.mutateAsync({ messageId, toolCallId, answers });
     setAtBottom(true);
     refreshThread();
   };
@@ -244,8 +244,8 @@ export function Conversation({
                   canAnswerQuestion={
                     !running && m.id === messages[messages.length - 1]?.id
                   }
-                  onAnswerQuestion={(toolCallId, selected, otherText) =>
-                    handleAnswerQuestion(m.id, toolCallId, selected, otherText)
+                  onAnswerQuestion={(toolCallId, answers) =>
+                    handleAnswerQuestion(m.id, toolCallId, answers)
                   }
                 />
               ),
@@ -452,8 +452,7 @@ function AssistantMessage({
   canAnswerQuestion?: boolean;
   onAnswerQuestion?: (
     toolCallId: string,
-    selected: string[],
-    otherText?: string,
+    answers: QuestionAnswer[],
   ) => Promise<void>;
 }) {
   const { copied, copy } = useCopy(text);

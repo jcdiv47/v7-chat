@@ -60,6 +60,6 @@ export const EVAL_PROMPTS: EvalPrompt[] = [
   { prompt: "What is the average number of stores per mall by city?", category: "counting", expect: "City-level average; two-level aggregation." },
 
   // Clarification questions (askUser)
-  { prompt: "How many stores opened recently?", category: "clarify", expectAsk: true, expect: "Asks ONE askUser question (e.g. which timeframe 'recently' means) instead of guessing; no SQL needed before asking." },
+  { prompt: "How many stores opened recently?", category: "clarify", expectAsk: true, expect: "Asks via a single askUser call (e.g. which timeframe 'recently' means) instead of guessing; no SQL needed before asking." },
   { prompt: "How many malls are in 北京市?", category: "clarify", expectAsk: false, expect: "Clear request — answers with a query, without calling askUser." },
 ];

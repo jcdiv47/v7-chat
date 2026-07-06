@@ -8,7 +8,11 @@
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gt, gte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { AskUserAnswer, AskUserInput } from "../../../lib/agent/types";
+import {
+  normalizeAskUserQuestions,
+  type AskUserAnswer,
+  type QuestionAnswer,
+} from "../../../lib/agent/types";
 import type { RenderToolPart } from "../../../lib/agent/stream-parts";
 import { bundledSkillSource } from "../../../lib/skills/loader";
 import { DEFAULT_MODEL_ALIAS } from "../../constants";
@@ -180,26 +184,36 @@ export const chatRouter = router({
     }),
 
   /**
-   * Answer a pending askUser clarification question: patch the stored tool
-   * part with the answer (so the card renders as answered forever), insert a
-   * user message carrying a readable rendering of the answer, and start the
-   * next run exactly like send. See docs/specs/10.
+   * Answer a pending askUser clarification call (one answer per question, in
+   * question order): patch the stored tool part with the answers (so the card
+   * renders as answered forever), insert a user message carrying a readable
+   * rendering of the Q→A pairs, and start the next run exactly like send.
+   * See docs/specs/10.
    */
   answerQuestion: publicProcedure
     .input(
       z.object({
         messageId: z.uuid(),
         toolCallId: z.string(),
-        selected: z.array(z.string()),
-        otherText: z.string().optional(),
+        answers: z
+          .array(
+            z.object({
+              selected: z.array(z.string()),
+              otherText: z.string().optional(),
+            }),
+          )
+          .min(1)
+          .max(3),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       assertNotDraining();
-      const selected = input.selected.map((s) => s.trim()).filter(Boolean);
-      const otherText = input.otherText?.trim() || undefined;
-      if (selected.length === 0 && !otherText) {
-        throw new Error("Pick an option or write an answer.");
+      const answers: QuestionAnswer[] = input.answers.map((a) => ({
+        selected: a.selected.map((s) => s.trim()).filter(Boolean),
+        otherText: a.otherText?.trim() || undefined,
+      }));
+      if (answers.some((a) => a.selected.length === 0 && !a.otherText)) {
+        throw new Error("Answer every question: pick an option or write an answer.");
       }
 
       const result = await ctx.db
@@ -240,18 +254,25 @@ export const chatRouter = router({
             throw new Error("This question was already answered.");
           }
 
-          const question = (part.input ?? {}) as Partial<AskUserInput>;
-          const labels = new Set((question.options ?? []).map((o) => o.label));
-          if (selected.some((s) => !labels.has(s))) {
-            throw new Error("Selected option is not one of the question's choices.");
+          const questions = normalizeAskUserQuestions(part.input);
+          if (questions.length === 0 || answers.length !== questions.length) {
+            throw new Error("Answers don't match the questions asked.");
           }
-          if (question.kind === "single" && selected.length > 1) {
-            throw new Error("This question takes a single choice.");
-          }
+          questions.forEach((q, i) => {
+            const labels = new Set(q.options.map((o) => o.label));
+            if (answers[i].selected.some((s) => !labels.has(s))) {
+              throw new Error(
+                "Selected option is not one of the question's choices.",
+              );
+            }
+            if (q.kind === "single" && answers[i].selected.length > 1) {
+              throw new Error("This question takes a single choice.");
+            }
+          });
 
           // Patch the part in place: output + status "done", or the work
           // block's tool row pulses as running forever.
-          const answer: AskUserAnswer = { answered: true, selected, otherText };
+          const answer: AskUserAnswer = { answered: true, answers };
           const patched = [...parts];
           patched[partIndex] = { ...part, status: "done", output: answer };
           await tx
@@ -259,13 +280,23 @@ export const chatRouter = router({
             .set({ parts: patched })
             .where(eq(messages.id, message.id));
 
-          // Readable rendering of the answer; history compaction feeds this
-          // to the model unchanged.
-          const pieces: string[] = [];
-          if (selected.length === 1) pieces.push(selected[0]);
-          else if (selected.length > 1) pieces.push(`Selected: ${selected.join(", ")}`);
-          if (otherText) pieces.push(`Other: ${otherText}`);
-          const text = pieces.join("\n");
+          // Readable rendering of the answers; history compaction feeds this
+          // to the model unchanged. Multi-question answers repeat the question
+          // so each pair reads unambiguously.
+          const renderAnswer = (a: QuestionAnswer) => {
+            const pieces: string[] = [];
+            if (a.selected.length === 1) pieces.push(a.selected[0]);
+            else if (a.selected.length > 1)
+              pieces.push(`Selected: ${a.selected.join(", ")}`);
+            if (a.otherText) pieces.push(`Other: ${a.otherText}`);
+            return pieces.join("; ");
+          };
+          const text =
+            questions.length === 1
+              ? renderAnswer(answers[0])
+              : questions
+                  .map((q, i) => `${q.question} — ${renderAnswer(answers[i])}`)
+                  .join("\n");
 
           const now = new Date();
           const userMessageId = newId();

@@ -9,7 +9,7 @@
  * Import-safe on the client (type-only import from `ai`).
  */
 import type { UIMessageChunk } from "ai";
-import type { AskUserAnswer, AskUserInput } from "./types";
+import { normalizeAskUserAnswers, normalizeAskUserQuestions } from "./types";
 import type { PresentDataOutput } from "./ui-spec";
 
 /** Rows kept in a runSql tool-output part *in the stream* (the small preview).
@@ -335,10 +335,13 @@ export function toolLabel(part: RenderToolPart): string {
     case "presentData":
       return input.title ? `Presented ${input.title}` : "Presented a view";
     case "askUser": {
-      const question = typeof input.question === "string" ? input.question : "";
-      return question
-        ? `Asked: ${question.length > 80 ? `${question.slice(0, 80)}…` : question}`
-        : "Asked a question";
+      const questions = normalizeAskUserQuestions(part.input);
+      const first = questions[0]?.question ?? "";
+      if (!first) return "Asked a question";
+      const label = first.length > 80 ? `${first.slice(0, 80)}…` : first;
+      return questions.length > 1
+        ? `Asked: ${label} (+${questions.length - 1} more)`
+        : `Asked: ${label}`;
     }
     case "saveArtifact":
       return input.title ? `Saved ${input.title}` : "Saved an artifact";
@@ -363,7 +366,7 @@ export function buildToolLines(parts: RenderPart[]): string[] {
     } else if (part.name === "presentData") {
       lines.push(presentDataLine(part));
     } else if (part.name === "askUser") {
-      lines.push(askUserLine(part));
+      lines.push(...askUserLines(part));
     } else {
       lines.push(toolLabel(part));
     }
@@ -371,25 +374,32 @@ export function buildToolLines(parts: RenderPart[]): string[] {
   return lines;
 }
 
-/** `askUser: "Which timeframe?" (single: Last 7 days | Last 30 days | All time)`
- * — the full question and options stay in history so the next run sees a
+/** One line per question, e.g.
+ * `askUser 1/2: "Which timeframe?" (single: Last 7 days | Last 30 days) → Last 30 days`
+ * — the full questions and options stay in history so the next run sees a
  * coherent Q→A exchange with the user's answer turn. An answered part (TUI
- * inline answer, or the web answer mutation's patch) appends the pick. */
-function askUserLine(part: RenderToolPart): string {
-  const input = (part.input ?? {}) as Partial<AskUserInput>;
-  const output = (part.output ?? {}) as Partial<AskUserAnswer>;
-  const options = (input.options ?? []).map((o) => o.label).join(" | ");
-  let line = `askUser: "${input.question ?? ""}" (${input.kind ?? "single"}: ${options})`;
-  if (output.answered) {
-    const picked = [
-      output.selected?.length ? output.selected.join(", ") : "",
-      output.otherText ? `Other: ${output.otherText}` : "",
-    ]
-      .filter(Boolean)
-      .join("; ");
-    line += ` → ${picked || "(no answer)"}`;
-  }
-  return line;
+ * inline answer, or the web answer mutation's patch) appends the picks. */
+function askUserLines(part: RenderToolPart): string[] {
+  const questions = normalizeAskUserQuestions(part.input);
+  const answers = normalizeAskUserAnswers(part.output);
+  if (questions.length === 0) return ["askUser: (no questions)"];
+  return questions.map((q, i) => {
+    const prefix =
+      questions.length > 1 ? `askUser ${i + 1}/${questions.length}` : "askUser";
+    const options = q.options.map((o) => o.label).join(" | ");
+    let line = `${prefix}: "${q.question}" (${q.kind}: ${options})`;
+    if (answers) {
+      const a = answers[i];
+      const picked = [
+        a?.selected.length ? a.selected.join(", ") : "",
+        a?.otherText ? `Other: ${a.otherText}` : "",
+      ]
+        .filter(Boolean)
+        .join("; ");
+      line += ` → ${picked || "(no answer)"}`;
+    }
+    return line;
+  });
 }
 
 /** `presentData: bar "Stores by city" (x: city, y: count, result: <id>)` —

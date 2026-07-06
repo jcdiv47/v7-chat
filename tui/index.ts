@@ -22,11 +22,15 @@ import { toolLabel, type RenderToolPart } from "../src/lib/agent/stream-parts";
 import { createDiskSkillSource } from "../src/lib/skills/disk";
 import { createNodeExecutor } from "../src/lib/sql/pglite-executor";
 import { getModel, hasRealModel, resolveModelDef } from "../src/lib/models/registry";
-import type {
-  AgentToolDeps,
-  AnalysisRuntimeContext,
-  AskUserAnswer,
-  AskUserInput,
+import {
+  normalizeAskUserAnswers,
+  normalizeAskUserQuestions,
+  type AgentToolDeps,
+  type AnalysisRuntimeContext,
+  type AskUserAnswer,
+  type AskUserInput,
+  type AskUserQuestion,
+  type QuestionAnswer,
 } from "../src/lib/agent/types";
 import type { PostgresExecutor } from "../src/lib/sql/executor";
 import type { SkillSource } from "../src/lib/skills/types";
@@ -51,19 +55,23 @@ function loadEnv() {
   }
 }
 
-/** Inline readline prompt for the askUser tool: pick options by number,
- * anything non-numeric is the free-text "Other" reply. Unlike the web runtime
- * (no execute — the run ends at the question), the TUI answers within the
- * same run. */
-async function promptAskUser(rl: Interface, input: AskUserInput): Promise<AskUserAnswer> {
-  stdout.write(`\n${C.bold}? ${input.question}${C.reset}\n`);
-  input.options.forEach((opt, i) => {
+/** Inline readline prompt for one askUser question: pick options by number,
+ * anything non-numeric is the free-text "Other" reply. */
+async function promptOneQuestion(
+  rl: Interface,
+  q: AskUserQuestion,
+  index: number,
+  total: number,
+): Promise<QuestionAnswer> {
+  const counter = total > 1 ? ` ${C.gray}(${index + 1}/${total})${C.reset}` : "";
+  stdout.write(`\n${C.bold}? ${q.question}${C.reset}${counter}\n`);
+  q.options.forEach((opt, i) => {
     stdout.write(
       `  ${i + 1}. ${opt.label}${opt.description ? ` ${C.gray}— ${opt.description}${C.reset}` : ""}\n`,
     );
   });
   const hint =
-    input.kind === "multi" ? "numbers (e.g. 1,3) and/or free text" : "a number or free text";
+    q.kind === "multi" ? "numbers (e.g. 1,3) and/or free text" : "a number or free text";
   for (;;) {
     const raw = (await rl.question(`${C.cyan}answer (${hint}) ›${C.reset} `)).trim();
     if (!raw) continue;
@@ -72,21 +80,32 @@ async function promptAskUser(rl: Interface, input: AskUserInput): Promise<AskUse
     const otherPieces: string[] = [];
     for (const token of tokens) {
       const n = Number(token);
-      if (Number.isInteger(n) && n >= 1 && n <= input.options.length) {
-        const label = input.options[n - 1].label;
+      if (Number.isInteger(n) && n >= 1 && n <= q.options.length) {
+        const label = q.options[n - 1].label;
         if (!selected.includes(label)) selected.push(label);
       } else {
         otherPieces.push(token);
       }
     }
-    if (input.kind === "single" && selected.length > 1) {
+    if (q.kind === "single" && selected.length > 1) {
       stdout.write(`${C.yellow}  pick one option${C.reset}\n`);
       continue;
     }
     const otherText = otherPieces.join(", ") || undefined;
     if (selected.length === 0 && !otherText) continue;
-    return { answered: true, selected, otherText };
+    return { selected, otherText };
   }
+}
+
+/** Ask each batched question in order. Unlike the web runtime (no execute —
+ * the run ends at the questions), the TUI answers within the same run. */
+async function promptAskUser(rl: Interface, input: AskUserInput): Promise<AskUserAnswer> {
+  const questions = normalizeAskUserQuestions(input);
+  const answers: QuestionAnswer[] = [];
+  for (const [i, q] of questions.entries()) {
+    answers.push(await promptOneQuestion(rl, q, i, questions.length));
+  }
+  return { answered: true, answers };
 }
 
 function createTuiDeps(
@@ -148,15 +167,20 @@ function summarizeTool(part: RenderToolPart): string {
     return `[view: ${output.view?.type} "${title}"]`;
   }
   if (part.name === "askUser") {
-    const input = (part.input ?? {}) as Partial<AskUserInput>;
-    const output = (part.output ?? {}) as Partial<AskUserAnswer>;
-    const answer = [
-      output.selected?.length ? output.selected.join(", ") : "",
-      output.otherText ? `Other: ${output.otherText}` : "",
-    ]
-      .filter(Boolean)
+    const questions = normalizeAskUserQuestions(part.input);
+    const answers = normalizeAskUserAnswers(part.output);
+    return questions
+      .map((q, i) => {
+        const a = answers?.[i];
+        const answer = [
+          a?.selected.length ? a.selected.join(", ") : "",
+          a?.otherText ? `Other: ${a.otherText}` : "",
+        ]
+          .filter(Boolean)
+          .join("; ");
+        return `askUser "${q.question}" → ${answer || "(no answer)"}`;
+      })
       .join("; ");
-    return `askUser "${input.question ?? ""}" → ${answer || "(no answer)"}`;
   }
   return toolLabel(part);
 }
