@@ -1,5 +1,10 @@
 # 07 Implementation Plan
 
+> **Historical plan:** the original Convex phases were superseded by
+> [11 — Remove Convex](./11-remove-convex.md). The current implementation uses
+> the single Next.js service, Postgres/Drizzle, and tRPC SSE streaming described
+> there.
+
 ## Phase 0: Project Setup
 
 Deliverables:
@@ -7,7 +12,7 @@ Deliverables:
 - Next.js app
 - Tailwind setup
 - shadcn/ui setup
-- Convex setup
+- Postgres/Drizzle app database setup
 - AI SDK V7 installed
 - OpenRouter provider installed
 - Postgres client installed
@@ -16,7 +21,7 @@ Deliverables:
 Acceptance criteria:
 
 - App starts locally.
-- Convex dev works.
+- Dev app database works.
 - A test OpenRouter call succeeds.
 - A test Postgres connection succeeds.
 
@@ -34,7 +39,7 @@ Acceptance criteria:
 - Agent code depends on aliases, not raw model IDs.
 - Changing a model ID requires one local config edit.
 
-## Phase 2: Convex Run Schema
+## Phase 2: Run Schema
 
 Deliverables:
 
@@ -42,7 +47,7 @@ Deliverables:
 - messages
 - agent runs
 - run events
-- `@convex-dev/persistent-text-streaming` component wired in; runs store their stream ID
+- `run_chunks` wired in for persisted JSONL stream replay
 - run liveness: heartbeat and stop-request fields, scheduled stale-run sweeper
 - artifacts
 
@@ -61,7 +66,8 @@ Deliverables:
 - `listTables`
 - `describeTable`
 - `runSql`
-- Postgres access as `"use node"` internal actions (web) and a direct client (TUI)
+- Postgres access through server-side executor dependencies (web) and a direct
+  client (TUI)
 - basic SQL read-only guard
 - timeout and max row handling
 - SQL artifact saving
@@ -118,8 +124,9 @@ Deliverables:
 - Claude-like chat shell (sidebar + conversation + artifact panel)
 - sidebar with pinned and recent session sections
 - global search modal (Cmd/Ctrl+K)
-- chat streaming endpoint as a Convex HTTP action
-- resumable streaming: `useStream` wrapper decoding JSONL parts from the persistent stream
+- chat streaming through tRPC mutation + `runs.stream` SSE subscription
+- resumable streaming: cursor-based JSONL replay from `run_chunks`, then live
+  tailing from RunBus
 - thinking + tool-call rendering with live → folded lifecycle
 - artifact panel with SQL, table, and chart tabs
 - stop and retry controls
@@ -158,8 +165,9 @@ V1 is done when:
 - OpenRouter-powered `ToolLoopAgent` runs in both TUI and web UI.
 - Agent queries only intermediate Postgres.
 - Skills are active, loadable, versioned, and logged.
-- Convex stores threads, messages, runs, events, persistent streams, and artifacts.
-- In-flight runs survive browser refresh; clients reattach to live streaming from Convex.
+- Postgres stores threads, messages, runs, events, stream chunks, and artifacts.
+- In-flight runs survive browser refresh; clients reattach to live streaming
+  through tRPC SSE.
 - SQL, table, chart, and final answer are visible in the UI.
 - Basic eval suite passes.
 
@@ -174,4 +182,3 @@ V1 is done when:
 - Scheduled analysis.
 - User feedback and eval dashboards.
 - Multi-dataset support.
-

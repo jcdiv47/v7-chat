@@ -78,7 +78,7 @@ function score(p: EvalPrompt, cap: Capture): { pass: boolean; note: string } {
     return { pass: hedges && ranSql, note: hedges ? "notes ambiguity" : "did not flag ambiguity" };
   }
   if (p.category === "chart") {
-    return { pass: cap.chartSaved && ranSql, note: cap.chartSaved ? "chart spec saved" : "no chart spec saved" };
+    return { pass: cap.chartSaved && ranSql, note: cap.chartSaved ? "presentData view saved" : "no presentData view saved" };
   }
   return { pass: ranSql && cap.answer.trim().length > 0, note: ranSql ? "grounded in SQL" : "no SQL run" };
 }

@@ -103,7 +103,7 @@ type RunSqlError = {
 
 ## Result Handling
 
-Do not store large full result sets in Convex by default.
+Do not store large full result sets in the app database by default.
 
 Store:
 
@@ -176,4 +176,3 @@ limit 20;
 - semantic metrics and dimensions
 - tenant-aware row-level controls
 - materialized analysis datasets created through approved backend jobs
-

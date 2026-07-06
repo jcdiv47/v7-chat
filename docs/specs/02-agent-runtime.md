@@ -1,19 +1,29 @@
 # 02 Agent Runtime
 
+> **Backend wiring superseded by [11 — Remove Convex](./11-remove-convex.md).**
+> The current web runtime is an in-process Next.js worker with Postgres-backed
+> run state and tRPC SSE streaming. Tool contracts and agent behavior below
+> still apply.
+
 ## Runtime Choice
 
 Use AI SDK V7 `ToolLoopAgent` for V1 interactive analysis. It provides a reusable agent definition with model settings, instructions, tools, loop control, UI streaming, and lifecycle callbacks.
 
 Use `WorkflowAgent` only when V1 needs durable, resumable, or approval-based work. Otherwise keep V1 simple.
 
-The interactive web loop runs inside an internal Convex action scheduled by the run-creating mutation, fully detached from any client connection: a browser refresh, disconnect, or immediate close cannot abort or orphan the run. Only an explicit stop cancels it. See `01-system-architecture.md` → Resumable Streaming.
+The interactive web loop runs in `src/server/run-worker.ts`, started after the
+run-creating tRPC mutation commits. It is detached from any client connection:
+a browser refresh, disconnect, or immediate close cannot abort or orphan the
+run. Only an explicit stop cancels it. See `11-remove-convex.md` for the
+current resumable streaming design.
 
 ## Execution Environment
 
-The driver action uses Convex's V8 runtime:
+The web driver runs in the long-lived Next.js Node runtime:
 
-- OpenRouter calls are fetch-based and run in the driver action directly.
-- Node-only work — the Postgres client in particular — lives in `"use node"` internal actions that tools invoke via `ctx.runAction`.
+- OpenRouter calls are fetch-based and run in the worker directly.
+- Node-only work — the Postgres client in particular — stays server-side in the
+  worker dependency layer.
 - The TUI runs the same agent definition in a plain Node process with direct tool implementations; only the tool wiring differs between the two entrypoints.
 
 ## Model Provider Strategy
@@ -92,7 +102,7 @@ Responsibilities:
 
 ### `saveArtifact`
 
-Stores final or intermediate analysis artifacts in Convex.
+Stores final or intermediate analysis artifacts in the app persistence layer.
 
 Artifact types the tool accepts:
 
@@ -144,13 +154,15 @@ toolsContext: {
     maxRows: 500,
   },
   saveArtifact: {
-    convexClient,
+    artifactStore,
     runId,
   },
 }
 ```
 
-In the web runtime, `runSql` receives a handle to the `"use node"` internal action instead of a raw database URL; the URL stays in the Convex environment read by that action. The TUI wires the database URL directly.
+In the web runtime, `runSql` receives server-side executor dependencies instead
+of a raw database URL; database URLs stay in server environment variables. The
+TUI wires the database URL directly.
 
 Do not put credentials in the prompt or runtime context.
 
@@ -196,17 +208,20 @@ Do not block V1 on perfect structured output. The artifact tool can store SQL an
 
 ## Stream Persistence
 
-Pipe the agent's UI message stream into `@convex-dev/persistent-text-streaming` while it streams, so live runs survive refresh:
+Publish the agent's UI message stream to the RunBus and persist it to
+`run_chunks` while it streams, so live runs survive refresh:
 
-- append each part (reasoning delta, tool-call state transition, text delta) as one JSON-serialized line through the component's chunk appender
-- the component batches chunk persistence and streams the same bytes over the HTTP response to the initiating tab
+- append each part (reasoning delta, tool-call state transition, text delta) as
+  one JSON-serialized line with an increasing run-local sequence number
+- the chunk writer publishes immediately to the in-memory RunBus and
+  batch-flushes the same JSONL lines to Postgres
 - part ordering is preserved by the single append-only stream, so a replay renders the same interleaving
 - keep tool-output parts compact: stream columns, row count, and a small row preview (~20 rows); the full preview lives in the run's artifacts/events, which the UI fetches when a tool row is expanded
 - on run completion, store the final assistant message on the thread and delete or compact the stream chunks
 
 ## Message Storage And History
 
-Messages are stored in Convex as AI SDK UI messages: role plus ordered parts.
+Messages are stored in Postgres as AI SDK UI messages: role plus ordered parts.
 
 - The stored assistant message keeps full parts fidelity — reasoning, tool calls with inputs and output summaries, text — because stream chunks are deleted after the run and prior sessions must still render the collapsed work block with expandable tool rows.
 - Full tool result previews are not embedded in the message; tool parts reference the artifact / run event that holds them.
@@ -233,4 +248,3 @@ Capture these events:
 - run failed
 
 This is the V1 substitute for Langfuse.
-

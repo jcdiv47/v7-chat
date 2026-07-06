@@ -1,5 +1,9 @@
 # 04 Agent Skills
 
+> **Deployment note:** backend storage and streaming moved from Convex to the
+> long-lived Next.js service in [11 — Remove Convex](./11-remove-convex.md).
+> The local skill strategy remains current.
+
 ## Skill Strategy
 
 Use AI SDK V7's provider-neutral local skills pattern for V1:
@@ -35,11 +39,11 @@ agent-skills/
 
 ## Skill Bundling
 
-Skills are authored as files but bundled at build time, because Convex functions cannot
-read the filesystem:
+Skills are authored as files but bundled at build time so the deployed web
+runtime uses a stable registry while local tooling can still read from disk:
 
 - a codegen step inlines each `SKILL.md` (and its `references/` files) into a generated
-  skill registry module deployed with the Convex code
+  skill registry module deployed with the app
 - `loadSkill` reads from that registry in the web runtime; the TUI reads the same files
   directly from disk
 - `skillsVersion` is derived by the build (e.g. a content hash), so a skill edit always
@@ -197,5 +201,4 @@ Enforcement still belongs in:
 - database permissions
 - `runSql` tool limits
 - backend authorization
-- Convex run logging
-
+- run logging

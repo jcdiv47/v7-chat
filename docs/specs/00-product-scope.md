@@ -28,7 +28,8 @@ The V1 product should feel like an internal analyst that can inspect a small bus
 - Treat OpenRouter as the first-class model provider.
 - Use AI SDK V7 `ToolLoopAgent` for the interactive agent loop.
 - Use AI SDK V7 agent skills to curate domain-specific behavior.
-- Store app state, runs, messages, tool events, and artifacts in Convex.
+- Store app state, runs, messages, stream chunks, tool events, and artifacts in
+  Postgres through the app backend.
 - Make in-flight runs resumable: a browser refresh mid-run reattaches to the live thinking, tool-call, and answer stream.
 - Query only the intermediate Postgres database.
 - Support basic table/chart/narrative outputs.
@@ -83,4 +84,3 @@ V1 is successful when:
 - Should analysis artifacts be shareable by URL in V1?
 - Should users be able to pin or name important runs?
 - Should the agent ask clarification questions before SQL when the prompt is ambiguous, or make a best-effort query with caveats?
-

@@ -159,8 +159,9 @@ except the final response renders inside one collapsible **work block** per turn
   `Loaded skill mall-domain-analysis`, `Described malls`, `Ran SQL query`. Tool calls
   are not grouped; each call is its own row. A row expands in place to reveal detail:
   arguments, the SQL, and a result preview.
-- **Streaming survives refresh.** The live view is driven by run state in Convex, not
-  by the HTTP response alone; see "Refresh And Reattach" below.
+- **Streaming survives refresh.** The live view is driven by persisted run
+  chunks plus the tRPC SSE stream, not by the initiating HTTP response alone;
+  see "Refresh And Reattach" below.
 
 ### Open / Collapsed Lifecycle
 
@@ -202,7 +203,7 @@ Streaming is resumable (see `01-system-architecture.md` → Resumable Streaming)
 
 - On thread load, if the latest run is still `running`, render it in the live phase:
   decode the persisted stream body into parts to rebuild the in-progress work block
-  and any final text, then continue appending from the Convex subscription.
+  and any final text, then continue appending from the tRPC SSE subscription.
 - No content is duplicated or lost across the refresh; part order matches the original
   stream.
 - The composer stays in the streaming state: send remains a stop control, and stop
@@ -253,10 +254,11 @@ Analysis outputs are first-class but live inside the chat-first design.
 The `<DataView>` component renders a validated view spec (`08-generative-ui.md`)
 against a referenced query result:
 
-- **Rows come from Convex, not the stream.** Streamed and persisted tool parts
-  carry only a ~20-row preview; `DataView` fetches full rows (up to the `runSql`
-  cap) reactively via `artifacts.get(resultId)`, with a skeleton while loading.
-  This makes live streams and reopened historical threads render identically.
+- **Rows come from persisted artifacts, not the stream.** Streamed and
+  persisted tool parts carry only a ~20-row preview; `DataView` fetches full
+  rows (up to the `runSql` cap) reactively via `artifacts.get(resultId)`, with
+  a skeleton while loading. This makes live streams and reopened historical
+  threads render identically.
 - **Table fallback, always.** The spec is re-validated with the shared Zod schema
   at render time; on parse failure, a missing column, or an unplottable variant,
   the view degrades to the plain result table — never a broken or empty chart.
@@ -281,13 +283,13 @@ against a referenced query result:
 
 ## AI SDK UI Integration
 
-Use AI SDK UI message parts as the rendering contract. A scheduled Convex action
-streams agent UI messages from the `ToolLoopAgent` — reasoning, tool, and text parts
-encoded as JSON lines — into `@convex-dev/persistent-text-streaming`. The client wraps
-the component's `useStream` hook in always-undriven mode: every tab (initiating,
-refreshed, or second) reads the persisted body reactively; the wrapper decodes JSONL
-back into parts and feeds the same renderer, so the live → folded lifecycle works
-identically everywhere.
+Use AI SDK UI message parts as the rendering contract. The in-process worker
+streams agent UI messages from the `ToolLoopAgent` — reasoning, tool, and text
+parts encoded as JSON lines — through the RunBus and persisted `run_chunks`.
+Every tab (initiating, refreshed, or second) reads through the cursor-based
+`runs.stream` tRPC SSE subscription; the client decodes JSONL back into parts
+and feeds the same renderer, so the live → folded lifecycle works identically
+everywhere.
 
 ## shadcn/ui Components
 

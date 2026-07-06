@@ -36,7 +36,7 @@ schema, result references by id, and inline rendering in the conversation.
 ## The View Spec
 
 The single source of truth lives in `src/lib/agent/ui-spec.ts`, shared by the
-tool `execute`, the Convex validator, and the frontend renderer. It replaces
+tool `execute`, backend validation, and the frontend renderer. It replaces
 `ChartSpec` in `src/lib/agent/types.ts`.
 
 ```ts
@@ -153,8 +153,9 @@ within its remaining loop steps instead of failing the run.
 - `runSql` output includes `resultId` — the id of the auto-saved `table`
   artifact (web), or a runtime-local id like `"r1"` (TUI, evals). The model
   sees it in-context and echoes it into `presentData`.
-- `getResultMeta(resultId)` returns `{ columns, rowCount } | null` — a Convex
-  lookup in the web runtime, an in-memory map in the TUI and eval harness.
+- `getResultMeta(resultId)` returns `{ columns, rowCount } | null` — an
+  artifact lookup in the web runtime, an in-memory map in the TUI and eval
+  harness.
 
 `createAgentTools` tracks the turn's `resultId`s in a closure (it defines the
 `runSql` execute) to power the sole-result fallback.
@@ -163,7 +164,7 @@ within its remaining loop steps instead of failing the run.
 
 `presentData` supersedes `chartSpec` artifacts. The `saveArtifact` tool narrows
 to `finding` and `error`; `sql` and `table` remain auto-saved by `runSql`. The
-`chartSpec` member stays in the Convex `artifactType` union so existing rows
+`chartSpec` member stays in the artifact type union so existing rows
 remain valid — no migration; legacy threads render through the old panel path.
 
 ## Rendering
@@ -190,7 +191,7 @@ The stream and the persisted message parts never carry full result rows
 (`trimChunkForStream` caps `runSql` outputs at a ~20-row preview, and the loop
 persists the trimmed chunks). Therefore:
 
-- A new `artifacts.get(artifactId)` Convex query (same ownership check as
+- A new `artifacts.get(artifactId)` tRPC query (same ownership check as
   `listForRun`) serves full rows, up to the `runSql` cap (default 500).
 - The inline `<DataView spec resultId>` component fetches rows reactively with
   that query and shows a skeleton while loading. This works identically for
@@ -235,7 +236,7 @@ thread ownership, not run ownership.
 
 Three runtimes share the tool definitions and must stay in lockstep:
 
-- **Demo mode** (`convex/agent/demo.ts`, the local default): emits the
+- **Demo mode** (`src/server/demo.ts`, the local default): emits the
   `presentData` chunk sequence (input-start → input-delta → input-available →
   output-available with a normalized spec and real artifact ids) and saves the
   `view` artifact, so the inline UI is demoable and testable offline.
@@ -267,7 +268,7 @@ aids interpretation; scalar answers get `stat` or nothing.
 
 - `artifactType` union: add `view`; keep `chartSpec` for legacy rows.
 - `view` artifact payload: `{ view: ViewSpec, resultId, title }`, validated
-  with a Convex validator generated from the same schema shape.
+  with the same schema shape used by the tool and renderer.
 - New public query `artifacts.get(artifactId)` with the standard user/thread
   ownership check.
 
