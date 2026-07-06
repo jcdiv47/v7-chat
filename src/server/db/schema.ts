@@ -1,9 +1,10 @@
 /**
- * App database schema (Drizzle over Railway/local Postgres). Same five tables
- * as the old convex/schema.ts plus run_chunks (the persisted stream, replacing
- * @convex-dev/persistent-text-streaming). IDs are UUIDv7 (time-ordered),
- * generated app-side. user_id stays text so V2 auth (Clerk/BetterAuth string
- * IDs) lands without a data migration. See docs/specs/11-remove-convex.md.
+ * App database schema (Drizzle over Railway/local Postgres). Core app tables
+ * hold threads, messages, runs, events, artifacts, and persisted stream
+ * chunks. IDs are UUIDv7 (time-ordered), generated app-side. user_id is text
+ * because Clerk user IDs are strings, and BetterAuth would fit the same shape
+ * if adopted later. See
+ * docs/specs/01-system-architecture.md.
  */
 import { sql } from "drizzle-orm";
 import {

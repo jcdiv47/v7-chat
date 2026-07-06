@@ -4,7 +4,7 @@
  * are not read-only before they ever reach Postgres, as defense-in-depth on top
  * of the read-only database role and statement timeouts.
  *
- * Pure and runtime-agnostic: used by the Convex node action, the TUI, and evals.
+ * Pure and runtime-agnostic: used by the web worker, the TUI, and evals.
  */
 
 export class SqlGuardError extends Error {

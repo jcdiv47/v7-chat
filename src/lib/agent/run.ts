@@ -1,8 +1,8 @@
 /**
  * Shared agent runner used by both entrypoints. Builds the AI SDK v7
  * `ToolLoopAgent`, streams it, and calls back per UI message chunk. The web
- * runtime (Convex HTTP action) and the TUI differ only in the tools/deps and the
- * callbacks they pass. See docs/specs/02-agent-runtime.md.
+ * runtime and the TUI differ only in the tools/deps and the callbacks they
+ * pass. See docs/specs/02-agent-runtime.md.
  */
 import {
   InvalidToolInputError,

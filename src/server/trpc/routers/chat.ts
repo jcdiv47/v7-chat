@@ -3,7 +3,7 @@
  * the thread row (serializing claims per thread), enforces one live run via
  * claimThreadForRun (reclaiming a stale run inline), stores the message
  * changes, and inserts the new `running` run; then it starts the in-process
- * worker after commit. Port of convex/chat.ts. See docs/specs/11.
+ * worker after commit. See docs/specs/01-system-architecture.md.
  */
 import { TRPCError } from "@trpc/server";
 import { and, asc, desc, eq, gt, gte, ne, sql } from "drizzle-orm";

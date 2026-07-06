@@ -1,33 +1,56 @@
 # 01 System Architecture
 
-> **Superseded in part by [11 — Remove Convex](./11-remove-convex.md).** The
-> Convex backend described below was replaced by a single long-lived Next.js
-> service on Railway with Postgres (Drizzle), tRPC, an in-process run worker,
-> and SSE streaming. The agent runtime, tools, skills, and data-access design
-> here still apply; read Convex-specific sections as historical context.
-
 ## Architecture Overview
 
-The original V1 architecture used Convex as the app backend and state store.
-That backend has been replaced by the Postgres/tRPC/SSE design in
-`11-remove-convex.md`; the diagram below is retained as historical context for
-the pre-migration design. The separate intermediate Postgres analytical data
-source and AI SDK V7 agent runtime remain part of the current architecture.
+V1 runs as one long-lived Next.js service backed by Postgres. The same process
+serves the UI, exposes the tRPC API, starts in-process agent runs, publishes
+live stream chunks through an in-memory RunBus, and sweeps stale runs.
+
+There are two Postgres databases:
+
+- **App Postgres** stores product state: threads, messages, runs, events,
+  artifacts, and persisted stream chunks.
+- **Intermediate Postgres** is the read-only analytical database the agent can
+  query through typed tools.
+
+Raw business Postgres remains outside the agent runtime path and feeds the
+intermediate database through an external materialization pipeline.
 
 ```mermaid
 flowchart LR
   U["User"] --> FE["Next.js frontend\nAI SDK UI + Tailwind + shadcn/ui"]
-  FE --> MU["Convex mutation\ncreate run + schedule driver"]
-  MU --> DA["Scheduled Convex action\nagent loop driver"]
-  DA --> AG["AI SDK V7 ToolLoopAgent"]
+  FE --> API["Next.js + tRPC\nqueries, mutations, SSE"]
+  API --> APG["App Postgres\nthreads, messages, runs,\nevents, artifacts, chunks"]
+  API --> WRK["Run worker\nin-process promise"]
+  WRK --> AG["AI SDK V7 ToolLoopAgent"]
+  WRK --> BUS["RunBus\nin-memory pub/sub"]
+  WRK --> APG
+  API --> BUS
   AG --> OR["OpenRouter model gateway"]
-  AG --> QT["Postgres query tool\n('use node' internal action)"]
+  AG --> QT["Postgres query tool\nserver-side executor"]
   QT --> IPG["Intermediate Postgres\ncities, malls, stores"]
-  DA --> CVX["Convex tables\nthreads, runs, events, artifacts,\nstream chunks"]
-  FE --> CVX
   RAW["Raw business Postgres"] --> ETL["External materialization pipeline"]
   ETL --> IPG
 ```
+
+## Key Decisions
+
+- **Hosting:** one Railway service running `next start` with boot hooks for the
+  worker support code, sweeper, and deploy drain. The service is intentionally
+  long-lived; live runs are not tied to serverless request lifetimes.
+- **App database:** Railway Postgres in production, local Postgres in
+  development. The app uses `pg` plus Drizzle over `DATABASE_URL`; with one
+  long-lived process, no PgBouncer or Redis is required for V1.
+- **Migrations:** schema lives in `src/server/db/schema.ts`; generated
+  migrations live in `drizzle/` and apply once at boot.
+- **API:** tRPC v11 + React Query provides typed queries, mutations, and the
+  `runs.stream` SSE subscription.
+- **Streaming transport:** SSE via `httpSubscriptionLink`. Client-to-server
+  actions such as send, stop, edit, retry, and clarification answers are plain
+  mutations, so V1 does not need a websocket server.
+- **Scale-out:** the RunBus is in-memory because V1 runs one process. If the
+  app ever runs more than one replica, swap RunBus for Redis pub/sub behind the
+  same interface.
 
 ## Component Responsibilities
 
@@ -43,35 +66,34 @@ flowchart LR
 - Render chat, tool activity, results, charts, and analysis artifacts.
 - Use AI SDK UI for streaming agent messages (text, reasoning, and tool parts).
 - Use Tailwind and shadcn/ui for layout and controls.
+- Use tRPC React Query hooks for API data and invalidation.
 - Keep SQL visible and copyable.
 
-### Historical Run Driver (Scheduled Convex Action)
+### App Backend And tRPC
 
-The original agent loop ran in an internal Convex action scheduled by the mutation that
-creates the run (`ctx.scheduler.runAfter(0, …)`), so execution starts unconditionally
-and never depends on any client connection. Next.js only serves the frontend; there is
-no chat HTTP endpoint.
+- Store application state in App Postgres, not analytical data.
+- Own threads, messages, runs, run events, artifacts, and stream chunks.
+- Expose tRPC routers for chat actions, thread/message reads, run status and
+  streaming, artifacts, and events.
+- Resolve the signed-in Clerk user in tRPC context and filter owned data by
+  `ctx.userId`.
+- Start a run worker only after the run-creating transaction commits.
+- Reject new runs while the service is draining for deploy shutdown.
 
-- Execute the `ToolLoopAgent` for the run created by the send-message mutation.
-- Pass runtime context: user, org, thread, run, model alias, active skill set.
-- Append the agent's UI message stream to `@convex-dev/persistent-text-streaming`,
-  one JSON line per part (reasoning delta, tool state change, text delta) — clients
-  read it through the reactive `getStreamBody` subscription.
-- Bridge agent events into run logs.
-- Call Postgres tools through `"use node"` internal actions, since the driver runs in
-  the V8 runtime.
-- Never tie run completion to the client connection; only an explicit stop cancels a
-  run.
+### Run Worker And Sweeper
 
-### Historical Convex Backend
-
-- Store application state, not analytical data.
-- Own users, organizations, threads, messages, runs, run events, artifacts, and saved outputs.
-- Enforce app-level authorization (a stub in V1's single-user mode; real enforcement
-  arrives with Clerk in V2).
-- Provide live updates for run state and artifact panels.
-- Persist in-flight stream chunks via `@convex-dev/persistent-text-streaming` so live
-  runs survive refresh and multiple tabs can watch the same run.
+- Execute the `ToolLoopAgent` for the run created by the chat mutation.
+- Pass runtime context: user, thread, run, model alias, active skill set, and
+  skill version.
+- Append UI message stream chunks as JSONL lines, publish them immediately to
+  RunBus, and persist them to `run_chunks` for replay.
+- Bridge agent events into run logs and artifacts through Drizzle helpers.
+- Call Postgres tools through server-side executor dependencies.
+- Check stop requests and stamp run heartbeats at step boundaries.
+- Sweep stale running runs and finalize them as failed with visible partial
+  output when possible.
+- On SIGTERM/SIGINT, stop accepting new runs, allow a grace window for active
+  runs, abort survivors, flush chunks, and finalize remaining runs.
 
 ### AI SDK Agent Runtime
 
@@ -79,6 +101,16 @@ no chat HTTP endpoint.
 - Use tools to inspect schema, run SQL, save artifacts, and present data views.
 - Use local agent skills to steer domain behavior.
 - Use OpenRouter model aliases through a central model registry.
+
+### App Postgres
+
+- Hold product state for threads, messages, runs, run events, artifacts, and
+  stream chunks.
+- Store all IDs as UUIDv7 values generated app-side.
+- Keep `user_id text` on owned rows because Clerk user IDs are strings;
+  BetterAuth would fit the same ownership column if adopted later.
+- Store stream chunks only as transient replay data; finalized assistant
+  messages carry the full renderable parts.
 
 ### Intermediate Postgres
 
@@ -90,6 +122,36 @@ no chat HTTP endpoint.
 
 - Not accessed by the agent.
 - Feeds the intermediate database through an external materialization pipeline.
+
+## App Postgres Schema
+
+The canonical schema is `src/server/db/schema.ts`.
+
+| Table | Purpose |
+| --- | --- |
+| `threads` | User-owned chat sessions with title, pin state, and timestamps. Indexed by `user_id`, `pinned`, and `updated_at` for sidebar queries. |
+| `messages` | User and assistant turns. Assistant rows store final text, full render parts, compact tool-line summaries for history, run linkage, status, and duration. |
+| `runs` | Agent execution lifecycle: status, stop request, heartbeat, model and skill metadata, message links, retry anchor, timing, error, finish reason, counters, and usage. A partial unique index (`one_live_run_per_thread`) allows only one `running` run per thread. |
+| `run_events` | Ordered structured events for debugging and the developer run-events panel. |
+| `artifacts` | SQL, table, view, finding, and error artifacts tied to runs and optionally messages. `chartSpec` remains in the type union for legacy rows; new charts use `view`. |
+| `run_chunks` | Persisted live stream replay. Each row is one JSONL-encoded UI message chunk line keyed by `(run_id, seq)`. The run is the stream; clients subscribe by `runId` and resume by sequence cursor. |
+
+## API Surface
+
+The public API is tRPC. Router procedures:
+
+| Router | Procedures |
+| --- | --- |
+| `chat` | `send`, `answerQuestion`, `editAndRerun`, `retry` |
+| `threads` | `list`, `get`, `search`, `create`, `rename`, `setPinned`, `remove` |
+| `messages` | `list`, `get` |
+| `runs` | `latestForThread`, `get`, `stop`, `stream` |
+| `artifacts` | `listForRun`, `get` |
+| `events` | `listForRun` |
+
+`runs.stream` is the only push channel in V1. Sidebar and artifact-panel data
+use normal query invalidation after mutations; title search uses SQL `ILIKE`,
+with Postgres full-text search (`tsvector`) as the upgrade path.
 
 ## Runtime Flows
 
@@ -149,18 +211,25 @@ Design rules:
 
 ### Chosen Implementation
 
-The current V1 implementation is the Postgres/tRPC/SSE design in
-`11-remove-convex.md`:
-
 - A tRPC mutation creates the run and starts the in-process worker after commit.
 - The worker runs the `ToolLoopAgent`, encodes UI message parts as JSONL, and
   writes each line through the chunk writer.
-- The chunk writer publishes immediately to the in-memory RunBus and
-  batch-flushes to `run_chunks`.
-- All tabs read through `runs.stream`, which first replays persisted chunks by
-  cursor and then tails the RunBus.
-- Stop and liveness are side channels on run state: the loop checks stop at step
-  boundaries and stamps `heartbeatAt`; a sweeper fails stale runs.
+- The chunk writer assigns a run-local `seq` to every JSONL line, publishes it
+  immediately to the in-memory RunBus, and buffers it for batched inserts into
+  `run_chunks`. It flushes when forced by a structural line, when at least
+  250 ms has elapsed, or when the pending buffer reaches 32 KB.
+- `runs.stream` accepts `{ runId, lastEventId }`, replays persisted chunks with
+  `seq > lastEventId`, then tails the RunBus. SSE event ids are the sequence
+  cursor, so reconnect resumes through `Last-Event-ID`.
+- The client reducer is incremental: each new line folds into persistent
+  reducer state. Historical finalized messages still render from the stored
+  `messages.parts`.
+- Stop and liveness are side channels on run state: the loop checks stop at
+  step boundaries and stamps `heartbeatAt`; a sweeper fails stale runs while
+  preserving partial output as a visible failed assistant turn.
+- The deploy drain handles process shutdown: set draining, reject new runs, let
+  active runs finish for a grace window, abort survivors, flush buffered chunks,
+  and finalize anything still marked running.
 - One run per thread at a time: the send mutation rejects a new message while
   the thread has a live run; the composer offers stop instead.
 
@@ -182,11 +251,16 @@ Names can change during implementation, but the app should centralize access to 
 OPENROUTER_API_KEY=
 INTERMEDIATE_DATABASE_URL=
 DATABASE_URL=
+MODEL_PROVIDER=
 ```
 
-`OPENROUTER_API_KEY`, `DATABASE_URL`, and `INTERMEDIATE_DATABASE_URL` live in
-the app service environment. The TUI reads the same model and intermediate
-database names from the local environment.
+`DATABASE_URL` points at App Postgres. `INTERMEDIATE_DATABASE_URL` points at
+the read-only analytical database. `MODEL_PROVIDER=mock` runs the deterministic
+offline demo path without model credentials; otherwise `OPENROUTER_API_KEY`
+selects the real OpenRouter-backed agent.
+
+These values live in the app service environment. The TUI reads the same model
+and intermediate database names from the local environment.
 
 Potential V2 values:
 
@@ -198,15 +272,17 @@ LANGFUSE_BASE_URL=
 
 ## Auth Posture
 
-V1 has no authentication: the app runs as a single anonymous user.
+The app uses Clerk authentication. All pages require sign-in, and app data is
+scoped by Clerk user id.
 
-- No login, no user accounts, no org scoping in V1.
-- Keep `userId` fields in the schema now (a constant placeholder value in V1) so Clerk
-  can land in V2 without a data migration.
-- Backend procedures do not authenticate callers in V1; do not expose the
-  deployment beyond the intended users.
-- V2 adds Clerk: identity on threads/runs/artifacts, per-user pinned sessions, and real
-  authorization checks in backend procedures.
+- tRPC context resolves the signed-in user and returns `UNAUTHORIZED` when the
+  session is missing.
+- Procedures filter owned rows by `ctx.userId`; threads, messages, runs, and
+  artifacts all carry user-linked ownership through the schema.
+- Clerk publishable/secret keys are required for the web app, including local
+  development.
+- V2 can add org scoping or replace Clerk with BetterAuth without changing
+  existing ownership columns because `user_id` is text.
 
 ## Boundary Rules
 

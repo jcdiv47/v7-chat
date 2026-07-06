@@ -42,7 +42,7 @@ The V1 product should feel like an internal analyst that can inspect a small bus
 - No full semantic layer.
 - No full SQL policy engine or deep AST governance.
 - No Langfuse integration yet.
-- No authentication or user accounts: V1 runs as a single anonymous user.
+- No org scoping or team administration beyond Clerk user-level auth.
 - No provider-native skill upload requirement.
 - No multi-provider model strategy beyond OpenRouter.
 - No complex data catalog product.
@@ -56,7 +56,7 @@ The V1 product should feel like an internal analyst that can inspect a small bus
 - Scheduled or background analysis jobs.
 - More datasets and tenant-specific metadata.
 - User-editable skill or prompt configuration.
-- Clerk authentication with real user accounts and org scoping.
+- Org scoping and shared workspaces.
 
 ## Initial Dataset
 

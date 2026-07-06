@@ -1,9 +1,5 @@
 # 04 Agent Skills
 
-> **Deployment note:** backend storage and streaming moved from Convex to the
-> long-lived Next.js service in [11 — Remove Convex](./11-remove-convex.md).
-> The local skill strategy remains current.
-
 ## Skill Strategy
 
 Use AI SDK V7's provider-neutral local skills pattern for V1:

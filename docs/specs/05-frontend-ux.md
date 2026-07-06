@@ -1,10 +1,5 @@
 # 05 Frontend UX
 
-> **Data layer superseded by [11 — Remove Convex](./11-remove-convex.md).**
-> Convex `useQuery`/`useStream` hooks became tRPC + React Query hooks and a
-> cursor-based SSE run stream with an incremental client reducer. The design
-> direction, component structure, and UX behaviors below are unchanged.
-
 ## Design Direction
 
 V1 uses a Claude-like, chat-first design. The conversation is the primary surface. The
@@ -84,9 +79,7 @@ Each session row shows:
 ### Footer
 
 - User avatar, name/handle, and plan/account indicator.
-- Entry point for account and settings.
-- V1 renders a static placeholder identity (single anonymous user, no login); this
-  footer becomes the Clerk account entry point in V2.
+- Entry point for the Clerk account menu and settings.
 
 ## Global Search Modal
 

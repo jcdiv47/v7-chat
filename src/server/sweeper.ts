@@ -1,8 +1,8 @@
 /**
- * Liveness hardening (docs/specs/11 → Liveness, stop, drain):
+ * Liveness hardening (docs/specs/02-agent-runtime.md):
  * - Sweeper: every 60 s, finalize `running` runs whose heartbeat went stale
  *   (server died mid-run), preserving partial output as a visible failed
- *   message — port of the Convex cron.
+ *   message.
  * - Drain: on SIGTERM/SIGINT, stop accepting new runs, give in-flight runs a
  *   grace window to finish, then abort them (the loop finalizes with partial
  *   output) and finalize anything left. Requires NEXT_MANUAL_SIG_HANDLE=true

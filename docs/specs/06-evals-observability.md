@@ -1,9 +1,5 @@
 # 06 Evals Observability
 
-> **Backend storage superseded by [11 — Remove Convex](./11-remove-convex.md).**
-> V1 run records, chunks, events, and artifacts now live in Postgres via
-> Drizzle; the observability fields and eval categories below remain the target.
-
 ## V1 Observability Goal
 
 Langfuse is deferred to V2, but V1 must capture enough structured run data to debug behavior and migrate to Langfuse later.
@@ -16,7 +12,7 @@ Suggested entities:
 type AgentRun = {
   id: string;
   threadId: string;
-  userId: string; // constant placeholder until Clerk lands in V2
+  userId: string; // Clerk user id
   orgId?: string;
   status: "running" | "completed" | "failed" | "cancelled";
   stopRequested?: boolean; // set by the stop mutation; loop checks at step boundaries
@@ -52,7 +48,7 @@ type AgentRunEvent = {
 
 Live stream persistence is owned by `run_chunks`: the stream body is
 JSONL-encoded AI SDK UI message parts, keyed by run and sequence cursor (see
-`11-remove-convex.md` → SSE Streaming Semantics). Chunks are transient
+`01-system-architecture.md` -> Resumable Streaming). Chunks are transient
 implementation detail for refresh/replay, so they need no Langfuse mapping.
 
 ```ts

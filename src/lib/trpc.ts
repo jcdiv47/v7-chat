@@ -1,6 +1,5 @@
-/** Client-side tRPC hooks + inferred API types (replaces the generated Convex
- * api/dataModel exports). Type-only import of the server router, so no server
- * code lands in the client bundle. */
+/** Client-side tRPC hooks + inferred API types. Type-only import of the server
+ * router, so no server code lands in the client bundle. */
 import { createTRPCReact } from "@trpc/react-query";
 import type { inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "@/server/trpc/root";

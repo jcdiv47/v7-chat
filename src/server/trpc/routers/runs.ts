@@ -52,7 +52,7 @@ async function runStatus(runId: string): Promise<RunRow["status"] | null> {
 }
 
 /**
- * The live stream read path (docs/specs/11 → Streaming Subsystem): replay
+ * The live stream read path (docs/specs/01-system-architecture.md): replay
  * persisted chunks after the cursor, then tail the RunBus, deduping the
  * overlap by seq. Yields batches of JSONL lines as tracked SSE events whose id
  * is the last line's seq — so httpSubscriptionLink's automatic reconnect
@@ -176,8 +176,7 @@ export const runsRouter = router({
    * Live run output as an SSE subscription. Events carry batches of JSONL
    * lines (UIMessageChunk per line); the event id is the seq cursor, so
    * reconnects resume via lastEventId. Keyed only by the unguessable runId
-   * (capability-URL security, matching the old stream.getBody); tighten
-   * alongside real auth in V2.
+   * after the tRPC context has required a signed-in user.
    */
   stream: publicProcedure
     .input(

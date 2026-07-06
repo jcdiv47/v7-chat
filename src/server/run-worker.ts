@@ -5,7 +5,7 @@
  * demo), writes each UI message chunk through the chunk writer (RunBus + batched
  * run_chunks persistence), stamps a heartbeat + checks stop at each step
  * boundary, and finalizes the run by storing the assistant message with full
- * parts fidelity. Port of convex/agent/loop.ts. See docs/specs/11.
+ * parts fidelity. See docs/specs/02-agent-runtime.md.
  */
 import type { UIMessageChunk } from "ai";
 import { eq } from "drizzle-orm";

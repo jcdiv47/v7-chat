@@ -1,8 +1,8 @@
 /**
- * V8-safe skill source over the build-time-generated registry. Used by the
- * Convex web runtime, which cannot read the filesystem. The registry module is
- * produced by `scripts/bundle-skills.ts` (run via predev / prebuild / preconvex)
- * and inlines every SKILL.md + references file.
+ * Skill source over the build-time-generated registry. The deployed web
+ * runtime reads from this bundled module instead of the filesystem. The
+ * registry module is produced by `scripts/bundle-skills.ts` (run via predev /
+ * prebuild) and inlines every SKILL.md + references file.
  */
 import { SKILLS_VERSION, SKILL_REGISTRY } from "./registry.generated";
 import type { Skill, SkillMeta, SkillSource } from "./types";

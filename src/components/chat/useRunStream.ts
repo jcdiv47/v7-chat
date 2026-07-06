@@ -22,7 +22,8 @@ export type RunStream = {
  * refreshed, or second — replays persisted chunks and tails the RunBus through
  * the same cursor-based stream. Each SSE event carries a batch of JSONL lines
  * folded incrementally into the render view model: O(1) work per chunk, never
- * a whole-body re-reduce. See docs/specs/05 & 11.
+ * a whole-body re-reduce. See docs/specs/01-system-architecture.md and
+ * docs/specs/05-frontend-ux.md.
  */
 export function useRunStream(runId: string | undefined): RunStream {
   const reducerRef = useRef<StreamReducer | null>(null);

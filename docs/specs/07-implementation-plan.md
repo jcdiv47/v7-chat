@@ -1,10 +1,5 @@
 # 07 Implementation Plan
 
-> **Historical plan:** the original Convex phases were superseded by
-> [11 — Remove Convex](./11-remove-convex.md). The current implementation uses
-> the single Next.js service, Postgres/Drizzle, and tRPC SSE streaming described
-> there.
-
 ## Phase 0: Project Setup
 
 Deliverables:
@@ -173,7 +168,7 @@ V1 is done when:
 
 ## V2 Backlog
 
-- Clerk authentication with real users and orgs.
+- Org scoping and shared workspaces.
 - Langfuse tracing.
 - WorkflowAgent for durable jobs.
 - Semantic layer.

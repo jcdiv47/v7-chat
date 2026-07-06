@@ -111,7 +111,7 @@ See [`evals/expected.md`](./evals/expected.md) for the rubric.
 src/server/             Backend: Drizzle schema/client, run lifecycle, worker, tRPC routers
   db/                   schema.ts, client.ts (pg Pool), migrate.ts
   trpc/                 routers (chat, threads, messages, runs, artifacts, events) + SSE stream
-  run-worker.ts         in-process agent loop (port of the old Convex action)
+  run-worker.ts         in-process agent loop
   run-bus.ts            in-memory pub/sub for live chunks
   chunk-writer.ts       RunBus publish + batched run_chunks persistence
   sweeper.ts            stale-run finalizer + SIGTERM drain

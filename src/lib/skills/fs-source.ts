@@ -1,7 +1,7 @@
 /**
  * Read + assemble skills from the `agent-skills/` directory on disk. Node-only
  * (uses fs/crypto). Shared by the build-time bundler (which serializes the
- * result into a Convex-deployable registry) and the TUI's disk skill source.
+ * result into the deployed registry) and the TUI's disk skill source.
  */
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";

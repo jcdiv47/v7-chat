@@ -4,7 +4,7 @@
  * hot path never touches the database) and an in-memory buffer flushed to
  * run_chunks as one batched INSERT when ≥250 ms elapsed, ≥32 KB buffered, or
  * the line is structural (step/tool boundaries). Seq increments per line, so
- * the SSE resume cursor is exact. See docs/specs/11 → Streaming Subsystem.
+ * the SSE resume cursor is exact. See docs/specs/01-system-architecture.md.
  */
 import { getDb } from "./db/client";
 import { runChunks } from "./db/schema";

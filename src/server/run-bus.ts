@@ -11,7 +11,7 @@
  * a process restart, right before the sweeper reclaims the run.
  *
  * One process ⇒ in-memory suffices; with >1 replica this swaps for Redis
- * pub/sub behind the same interface. See docs/specs/11 → Streaming Subsystem.
+ * pub/sub behind the same interface. See docs/specs/01-system-architecture.md.
  */
 export type RunBusEvent =
   | { type: "line"; seq: number; line: string }

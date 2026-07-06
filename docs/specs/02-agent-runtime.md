@@ -1,10 +1,5 @@
 # 02 Agent Runtime
 
-> **Backend wiring superseded by [11 — Remove Convex](./11-remove-convex.md).**
-> The current web runtime is an in-process Next.js worker with Postgres-backed
-> run state and tRPC SSE streaming. Tool contracts and agent behavior below
-> still apply.
-
 ## Runtime Choice
 
 Use AI SDK V7 `ToolLoopAgent` for V1 interactive analysis. It provides a reusable agent definition with model settings, instructions, tools, loop control, UI streaming, and lifecycle callbacks.
@@ -14,8 +9,8 @@ Use `WorkflowAgent` only when V1 needs durable, resumable, or approval-based wor
 The interactive web loop runs in `src/server/run-worker.ts`, started after the
 run-creating tRPC mutation commits. It is detached from any client connection:
 a browser refresh, disconnect, or immediate close cannot abort or orphan the
-run. Only an explicit stop cancels it. See `11-remove-convex.md` for the
-current resumable streaming design.
+run. Only an explicit stop cancels it. The resumable streaming contract is
+documented in `01-system-architecture.md` -> Resumable Streaming.
 
 ## Execution Environment
 
@@ -249,10 +244,29 @@ Publish the agent's UI message stream to the RunBus and persist it to
 - append each part (reasoning delta, tool-call state transition, text delta) as
   one JSON-serialized line with an increasing run-local sequence number
 - the chunk writer publishes immediately to the in-memory RunBus and
-  batch-flushes the same JSONL lines to Postgres
+  batch-flushes the same JSONL lines to Postgres when a structural line forces
+  a flush, when at least 250 ms has elapsed, or when the pending buffer reaches
+  32 KB
+- `runs.stream` first replays `run_chunks` with `seq` greater than the SSE
+  cursor, then tails RunBus; SSE event ids are the same sequence cursor
 - part ordering is preserved by the single append-only stream, so a replay renders the same interleaving
 - keep tool-output parts compact: stream columns, row count, and a small row preview (~20 rows); the full preview lives in the run's artifacts/events, which the UI fetches when a tool row is expanded
 - on run completion, store the final assistant message on the thread and delete or compact the stream chunks
+
+## Liveness, Stop, And Drain
+
+- `runs.stop` sets `stopRequested`; the worker observes it at step boundaries.
+- The worker stamps `heartbeatAt` at each step boundary. A run still marked
+  `running` after `HEARTBEAT_STALE_MS` is reclaimed by the sweeper or by the
+  next run-claim transaction.
+- Interrupted runs are finalized as failed assistant messages using any partial
+  output that can be reconstructed from `run_chunks`.
+- `claimThreadForRun` locks the thread, finalizes stale live runs inline, and
+  relies on the `one_live_run_per_thread` partial unique index as a race
+  backstop.
+- On SIGTERM/SIGINT, the deploy drain rejects new runs, gives active runs a
+  grace window, aborts survivors, flushes chunk buffers through the worker
+  abort path, and finalizes anything left running.
 
 ## Message Storage And History
 

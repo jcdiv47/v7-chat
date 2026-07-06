@@ -4,7 +4,8 @@
  * RunBus, and persisted to `run_chunks`. Every tab — initiating, refreshed, or
  * second — reads the same lines over the `runs.stream` SSE subscription and
  * folds them into the render view model here, so the live → folded lifecycle
- * is identical. See docs/specs/05 & 11.
+ * is identical. See docs/specs/01-system-architecture.md and
+ * docs/specs/05-frontend-ux.md.
  *
  * Import-safe on the client (type-only import from `ai`).
  */

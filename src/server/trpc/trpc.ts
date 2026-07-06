@@ -1,6 +1,6 @@
 /**
  * tRPC scaffolding. The context resolves the signed-in Clerk user; every
- * procedure filters by ctx.userId. See docs/specs/11 → V2 Readiness.
+ * procedure filters by ctx.userId. See docs/specs/01-system-architecture.md.
  */
 import { auth } from "@clerk/nextjs/server";
 import { initTRPC, TRPCError } from "@trpc/server";

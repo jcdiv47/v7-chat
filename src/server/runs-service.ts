@@ -1,8 +1,8 @@
 /**
  * Run lifecycle helpers shared by the tRPC routers, the worker, and the
  * sweeper: heartbeat/stop, outcome storage, interrupted-run reclamation, and
- * the transactional one-live-run-per-thread claim. Port of the internal
- * mutations in convex/runs.ts. See docs/specs/11 → Liveness, stop, drain.
+ * the transactional one-live-run-per-thread claim. See
+ * docs/specs/02-agent-runtime.md.
  */
 import { and, asc, desc, eq, isNull, lte } from "drizzle-orm";
 import { v7 as uuidv7 } from "uuid";
