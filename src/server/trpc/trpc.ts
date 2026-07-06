@@ -1,10 +1,9 @@
 /**
- * tRPC scaffolding. V1 runs as a single anonymous user; V2 auth swaps
- * createContext for a session resolver (BetterAuth/Clerk) and procedures keep
- * filtering by ctx.userId unchanged. See docs/specs/11 → V2 Readiness.
+ * tRPC scaffolding. The context resolves the signed-in Clerk user; every
+ * procedure filters by ctx.userId. See docs/specs/11 → V2 Readiness.
  */
-import { initTRPC } from "@trpc/server";
-import { ANON_USER_ID } from "../constants";
+import { auth } from "@clerk/nextjs/server";
+import { initTRPC, TRPCError } from "@trpc/server";
 import { getDb, type Db } from "../db/client";
 
 export type Context = {
@@ -12,8 +11,10 @@ export type Context = {
   db: Db;
 };
 
-export function createContext(): Context {
-  return { userId: ANON_USER_ID, db: getDb() };
+export async function createContext(): Promise<Context> {
+  const { userId } = await auth();
+  if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+  return { userId, db: getDb() };
 }
 
 const t = initTRPC.context<Context>().create({

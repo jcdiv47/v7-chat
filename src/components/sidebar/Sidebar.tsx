@@ -25,7 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { UserFooter } from "@/components/auth/UserFooter";
 
 type Thread = ThreadSummary;
 
@@ -137,17 +137,8 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center gap-2 border-t border-sidebar-border px-3 py-2.5">
-        <div className="flex size-7 items-center justify-center rounded-full bg-muted text-xs font-medium">
-          A
-        </div>
-        <div className="flex-1 leading-tight">
-          <div className="text-xs font-medium">Anonymous</div>
-          <div className="text-[11px] text-muted-foreground">Local · V1</div>
-        </div>
-        <ThemeToggle />
-      </div>
+      {/* Footer: account entry point */}
+      <UserFooter />
     </div>
   );
 }

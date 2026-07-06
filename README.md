@@ -13,7 +13,7 @@ subscriptions · **AI SDK v7 `ToolLoopAgent`** · **OpenRouter** · an intermedi
 
 ---
 
-## Quick start (offline demo — no API key)
+## Quick start (offline demo — no model API key)
 
 ```bash
 npm install
@@ -22,11 +22,19 @@ cp .env.example .env.local
 MODEL_PROVIDER=mock npm run dev   # http://localhost:3000
 ```
 
+Before starting the app, create a free Clerk app and paste these keys into
+`.env.local`:
+
+```bash
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
+CLERK_SECRET_KEY=sk_...
+```
+
 With `MODEL_PROVIDER=mock` (or no `OPENROUTER_API_KEY`), the chat runs a
 **deterministic offline demo** that streams reasoning, tool calls, a result
 table, and a chart — enough to exercise the whole UI, streaming, and
-resumability without any external services. Migrations apply automatically at
-boot.
+resumability without a model provider or analytical database. Clerk auth is
+still required for the browser app. Migrations apply automatically at boot.
 
 ## Going live (real model + database)
 
@@ -44,8 +52,11 @@ alias with `MODEL_ANALYST=...` etc. See [`.env.example`](./.env.example).
 
 One service (`next build` / `next start`) plus a Railway Postgres. Set
 `DATABASE_URL` to the **private network** URL, plus the model/database vars
-above and `NEXT_MANUAL_SIG_HANDLE=true` so the SIGTERM drain can finish
-in-flight runs on deploys. Migrations run at boot.
+above, the Clerk keys (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and
+`CLERK_SECRET_KEY`), and `NEXT_MANUAL_SIG_HANDLE=true` so the SIGTERM drain can
+finish in-flight runs on deploys. `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` must be
+present at build time because it is inlined into the client bundle. Migrations
+run at boot.
 
 ## TUI (fast local iteration)
 
@@ -133,8 +144,9 @@ scripts/                skill bundler, DB seeder
 
 ## V1 scope
 
-Single anonymous user (auth is V2 — every table already carries `user_id`).
-Read-only queries against the intermediate Postgres only — the model never
-touches raw business data or writes. Deferred to V2: auth, Langfuse tracing,
-durable jobs, a semantic layer, and a strict SQL policy engine. See
+Clerk authentication is mandatory; app data is scoped by Clerk user id in the
+Postgres tables. Read-only queries against the intermediate Postgres only — the
+model never touches raw business data or writes. Deferred to V2: Langfuse
+tracing, durable jobs, a semantic layer, org scoping, and a strict SQL policy
+engine. See
 [`docs/specs/00-product-scope.md`](./docs/specs/00-product-scope.md).

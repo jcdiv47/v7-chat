@@ -1,7 +1,3 @@
-/** Single anonymous user placeholder for V1 (real auth arrives in V2, when the
- * tRPC context resolves a session instead of this constant). */
-export const ANON_USER_ID = "anon";
-
 /** Max tool-loop steps for interactive chat (docs/specs/02 → Loop Control). */
 export const MAX_STEPS = 12;
 
