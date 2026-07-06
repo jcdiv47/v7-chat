@@ -55,6 +55,9 @@ flowchart LR
 - **Scale-out:** the RunBus is in-memory because V1 runs one process. If the
   app ever runs more than one replica, swap RunBus for Redis pub/sub behind the
   same interface.
+- **Langfuse posture:** Langfuse is an async observability sink, not source of
+  truth. App Postgres keeps product state and data artifacts; Langfuse receives
+  trace/session metadata, model usage, tool activity, and SQL statements.
 
 ## Component Responsibilities
 
@@ -307,7 +310,14 @@ Potential V2 values:
 LANGFUSE_PUBLIC_KEY=
 LANGFUSE_SECRET_KEY=
 LANGFUSE_BASE_URL=
+LANGFUSE_ENVIRONMENT=
 ```
+
+When Langfuse is enabled, `threadId` maps to the Langfuse session and each
+`runId` maps to a trace. OpenRouter raw usage is persisted in `runs.usage`; if
+OpenRouter returns raw cost, that value is the source of truth for Langfuse
+cost reporting. SQL tracing records the query and execution metadata only, not
+result rows or result previews.
 
 ## Auth Posture
 

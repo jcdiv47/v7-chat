@@ -25,7 +25,9 @@ This directory captures the product and technical specs for the V1 agentic busin
 - AI SDK V7 `WorkflowAgent` is reserved for durable or long-running workflows.
 - OpenRouter is the first-class model provider for V1.
 - Provider-native skill upload is not required for V1; use provider-neutral local agent skills.
-- Langfuse is deferred to V2, but V1 should log enough run metadata to migrate later.
+- Langfuse is deferred to V2, but V1 should log enough run metadata to migrate
+  later: thread/run ids, model ids, tool activity, SQL statements, full
+  provider usage payloads, and OpenRouter raw cost when present.
 - Full semantic layer and strict SQL governance are V2 concerns.
 - Fuzzy search, PGroonga-backed multilingual search, and message-body search
   remain future directions.

@@ -250,7 +250,7 @@ Publish the agent's UI message stream to the RunBus and persist it to
 - `runs.stream` first replays `run_chunks` with `seq` greater than the SSE
   cursor, then tails RunBus; SSE event ids are the same sequence cursor
 - part ordering is preserved by the single append-only stream, so a replay renders the same interleaving
-- keep tool-output parts compact: stream columns, row count, and a small row preview (~20 rows); the full preview lives in the run's artifacts/events, which the UI fetches when a tool row is expanded
+- keep tool-output parts compact: stream columns, row count, and a small row preview (~20 rows); the full preview lives in artifacts, which the UI fetches when a tool row is expanded
 - on run completion, store the final assistant message on the thread and delete or compact the stream chunks
 
 ## Liveness, Stop, And Drain
@@ -273,7 +273,7 @@ Publish the agent's UI message stream to the RunBus and persist it to
 Messages are stored in Postgres as AI SDK UI messages: role plus ordered parts.
 
 - The stored assistant message keeps full parts fidelity — reasoning, tool calls with inputs and output summaries, text — because stream chunks are deleted after the run and prior sessions must still render the collapsed work block with expandable tool rows.
-- Full tool result previews are not embedded in the message; tool parts reference the artifact / run event that holds them.
+- Full tool result previews are not embedded in the message; tool parts reference the table artifact that holds them.
 
 Model context for a new turn is built from the thread's messages with a compaction policy:
 
@@ -296,4 +296,12 @@ Capture these events:
 - run finished
 - run failed
 
-This is the V1 substitute for Langfuse.
+This is the V1 substitute for Langfuse. Preserve token usage with as much
+provider detail as the AI SDK exposes, including cache token details,
+reasoning-token details, and raw provider usage. For OpenRouter, persist
+`usage.raw` unchanged and treat `usage.raw.cost` as the authoritative cost when
+present.
+
+When Langfuse tracing is added, SQL observations should contain the SQL
+statement and minimal execution metadata only. Do not trace SQL result rows,
+previews, or table artifact payloads.

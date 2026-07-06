@@ -2,7 +2,10 @@
 
 ## V1 Observability Goal
 
-Langfuse is deferred to V2, but V1 must capture enough structured run data to debug behavior and migrate to Langfuse later.
+Langfuse is deferred to V2, but V1 must capture enough structured run data to
+debug behavior and migrate to Langfuse later. App Postgres remains the source
+of truth for product state; Langfuse is an observability sink, not a dependency
+for run correctness.
 
 ## Run Records
 
@@ -25,6 +28,30 @@ type AgentRun = {
   startedAt: number;
   finishedAt?: number;
   error?: string;
+  usage?: AgentRunUsage;
+};
+```
+
+`usage` should preserve both normalized fields and the provider payload:
+
+```ts
+type AgentRunUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  inputTokenDetails?: {
+    noCacheTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
+  outputTokenDetails?: {
+    textTokens?: number;
+    reasoningTokens?: number;
+  };
+  /** Raw provider usage payload, especially OpenRouter's reported cost. */
+  raw?: Record<string, unknown>;
+  /** Prefer OpenRouter `raw.cost` when present. */
+  costUsd?: number;
 };
 ```
 
@@ -75,8 +102,16 @@ type AgentArtifact = {
 - truncation flag
 - error type
 - total duration
-- token usage if provided
-- estimated cost if available
+- token usage if provided, including cache and reasoning-token details
+- OpenRouter raw usage payload, when provided
+- OpenRouter raw `usage.cost`, when provided
+
+Cost truth comes from OpenRouter, not a local pricing table. When
+OpenRouter returns `usage.raw.cost`, trust that value and persist it in
+`runs.usage.raw` for auditability. Also copy it into a normalized `costUsd`
+field for querying. Do not add Langfuse custom model definitions as a fallback
+while OpenRouter raw cost is absent; pricing can vary by OpenRouter provider
+route, so inferred local pricing is not worth maintaining for V1/V2.
 
 ## Evals
 
@@ -136,14 +171,54 @@ Use a simple manual or scripted rubric:
 
 ## V2 Langfuse Path
 
-When adding Langfuse:
+When adding Langfuse, keep the app database as the durable run record and send
+Langfuse an async observability view:
 
-- map `AgentRun` to trace
-- map agent steps to spans
-- map tool calls to spans
-- attach SQL metadata
-- attach skill version and active skills
-- attach model alias and underlying model
-- attach eval labels and user feedback
+- map `threadId` to Langfuse `sessionId`, so a chat session groups all of its
+  agent runs into one replayable observability timeline
+- map each `runId` to one Langfuse trace, preferably with a deterministic trace
+  id derived from `runId` for easy cross-linking
+- wrap the worker run in a root `agent` observation
+- map each ToolLoopAgent model step / language-model call to a generation
+  observation
+- map tool calls to tool observations
+- attach skill version, active skills, loaded skills, model alias, underlying
+  OpenRouter model id, run status, finish reason, and error metadata
+- attach eval labels and user feedback when those surfaces exist
 
-V1 logs should preserve enough fields to backfill or compare with V2 traces.
+Use the AI SDK 7 `telemetry` option together with the Langfuse AI SDK
+integration; do not use the deprecated `experimental_telemetry` API for new
+code.
+
+### Langfuse Cost Policy
+
+Cost should be based on OpenRouter's own usage accounting:
+
+1. Trust OpenRouter `usage.raw.cost` when present.
+2. Persist `usage.raw` unchanged in `runs.usage` so we can audit exactly what
+   OpenRouter returned.
+3. Verify whether the Langfuse AI SDK integration receives
+   `costDetails.total` automatically.
+4. If not, manually pass `costDetails.total = usage.raw.cost`.
+
+Do not configure Langfuse custom model definitions as the first fallback for
+OpenRouter cost. Custom model definitions can be revisited only if we later
+decide estimated cost is useful when OpenRouter does not return raw cost.
+
+### SQL Trace Policy
+
+Trace SQL activity, not result data. A SQL observation should include:
+
+- SQL statement
+- purpose, when supplied
+- success/failure
+- execution time
+- concise error text, when failed
+
+Do not send SQL result rows, row previews, table artifact payloads, or full
+result sets to Langfuse. Result inspection belongs in App Postgres artifacts and
+the application UI, not the tracing backend.
+
+`run_chunks` also have no Langfuse mapping. They are transient SSE replay
+plumbing; finalized assistant messages and Langfuse traces are the durable
+conversation/observability records.

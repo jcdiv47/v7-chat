@@ -120,10 +120,15 @@ For V1, a preview of 100-500 rows is enough.
 The preview has three consumers with different sizes:
 
 - the model receives the tool result up to `maxRows`
-- the artifact / run event stores the full preview (100-500 rows) for the result table
-  and expanded tool rows
+- the artifact stores the full preview (100-500 rows) for the result table and
+  expanded tool rows
 - the persistent stream's tool-output part carries only columns, row count, and a
   ~20-row preview, to keep the stream body small
+
+Observability traces should not carry result rows. `run_events` and Langfuse
+traces should log the SQL statement, purpose, success/failure, execution time,
+and concise error metadata only; row previews and full result payloads belong
+in table artifacts.
 
 ## Useful Starter Questions
 
