@@ -8,6 +8,11 @@
  * parts fidelity. See docs/specs/02-agent-runtime.md.
  */
 import type { UIMessageChunk } from "ai";
+import {
+  propagateAttributes,
+  startActiveObservation,
+  type LangfuseAgent,
+} from "@langfuse/tracing";
 import { eq } from "drizzle-orm";
 import { buildModelMessages, type CompactTurn } from "../lib/agent/history";
 import { buildInstructions } from "../lib/agent/instructions";
@@ -25,6 +30,7 @@ import {
   getModel,
   getModelId,
   hasRealModel,
+  openrouterProviderOptions,
   resolveModelDef,
 } from "../lib/models/registry";
 import type { AnalysisRuntimeContext, ModelAlias } from "../lib/agent/types";
@@ -90,11 +96,29 @@ async function driveRun(runId: string, abortSignal: AbortSignal): Promise<void> 
   const writer = createChunkWriter(runId);
   const stats = newRunStats();
   const collected: UIMessageChunk[] = [];
+  // The manual Langfuse root observation while the agent loop runs, so stream
+  // handling can attach gap observations. Inert when tracing is off.
+  let tracingRoot: LangfuseAgent | undefined;
+  // Last error chunk's text — same derivation as reduceChunks().errorText,
+  // available early for the trace outcome metadata.
+  let streamErrorText: string | undefined;
 
   const onChunk = async (chunk: UIMessageChunk) => {
     const trimmed = trimChunkForStream(chunk);
     collected.push(trimmed);
-    if (chunk.type === "tool-input-available") stats.toolCallCount += 1;
+    if (chunk.type === "error") streamErrorText = chunk.errorText;
+    if (chunk.type === "tool-input-available") {
+      stats.toolCallCount += 1;
+      // Gap observation (docs/specs/06 → V2 Langfuse Path): the web askUser
+      // tool has no execute (HITL stop-and-wait), so the AI SDK integration
+      // emits no tool span for it. Records the question only — the answer
+      // arrives as the next run's user turn.
+      if (chunk.toolName === "askUser") {
+        tracingRoot
+          ?.startObservation("askUser", { input: chunk.input }, { asType: "tool" })
+          .end();
+      }
+    }
     // Structural chunks (tool rows, step/finish markers) flush immediately so
     // live viewers see them without waiting for the flush interval; deltas
     // (text, reasoning, tool input) are batched to keep write volume down.
@@ -161,22 +185,75 @@ async function driveRun(runId: string, abortSignal: AbortSignal): Promise<void> 
         loadedSkillNames: [],
         skillsVersion: run.skillsVersion,
       };
-      result = await runAnalysisAgent({
-        model: getModel(alias),
-        temperature: def.temperature,
-        maxOutputTokens: def.maxOutputTokens,
-        reasoning: def.reasoning,
-        instructions: buildInstructions(skills),
-        messages,
-        tools: createAgentTools(deps),
-        maxSteps: MAX_STEPS,
-        timeout: RUN_TIMEOUTS,
-        runtimeContext,
-        abortSignal,
-        onChunk,
-        onEvent,
-        beforeStep,
-      });
+      // Trace-level attributes for Langfuse: the thread is the session, each
+      // run is one trace (one agent.stream call), cross-linked via runId in
+      // metadata. The manual root observation exists for what the AI SDK
+      // integration can't carry: outcome metadata written after the loop
+      // (ended AI SDK spans can't be amended) and askUser gap observations.
+      // All of it is a no-op when tracing is disabled (no active tracer).
+      result = await propagateAttributes(
+        {
+          traceName: "analysis-run",
+          sessionId: run.threadId,
+          userId: run.userId,
+          tags: [alias],
+          metadata: {
+            runId,
+            threadId: run.threadId,
+            modelAlias: alias,
+            modelId: getModelId(alias),
+            skillsVersion: run.skillsVersion,
+          },
+        },
+        () =>
+          startActiveObservation(
+            "analysis-run",
+            async (root) => {
+              tracingRoot = root;
+              const res = await runAnalysisAgent({
+                model: getModel(alias),
+                temperature: def.temperature,
+                maxOutputTokens: def.maxOutputTokens,
+                reasoning: def.reasoning,
+                instructions: buildInstructions(skills),
+                messages,
+                tools: createAgentTools(deps),
+                maxSteps: MAX_STEPS,
+                providerOptions: openrouterProviderOptions(),
+                timeout: RUN_TIMEOUTS,
+                runtimeContext,
+                abortSignal,
+                onChunk,
+                onEvent,
+                beforeStep,
+              });
+              // Same status derivation as the finalization below (streamErrorText
+              // is what reduceChunks would report). A run reclaimed by the
+              // sweeper mid-flight keeps this executor's view of the outcome.
+              const traceErrorText = res.errorText ?? streamErrorText;
+              const status = res.aborted
+                ? "cancelled"
+                : traceErrorText
+                  ? "failed"
+                  : "completed";
+              root.update({
+                output: { status, finishReason: res.finishReason, error: traceErrorText },
+              });
+              const outcomeMeta: Record<string, string> = {
+                status,
+                finishReason: res.finishReason,
+                activeSkillNames: JSON.stringify(run.activeSkillNames),
+                loadedSkillNames: JSON.stringify([...stats.loadedSkills]),
+              };
+              if (traceErrorText) outcomeMeta.error = traceErrorText.slice(0, 500);
+              for (const [key, value] of Object.entries(outcomeMeta)) {
+                root.otelSpan.setAttribute(`langfuse.trace.metadata.${key}`, value);
+              }
+              return res;
+            },
+            { asType: "agent" },
+          ),
+      );
     }
   } catch (err) {
     result = {

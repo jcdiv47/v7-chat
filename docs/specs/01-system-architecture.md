@@ -328,7 +328,10 @@ metadata only — never artifact payloads; the model-visible result preview
 inside model-call observations is accepted (see `06-evals-observability.md`).
 The integration should use AI SDK 7 telemetry registered through
 `LangfuseVercelAiSdkIntegration`, exported with `LangfuseSpanProcessor`, and
-scoped with `propagateAttributes`.
+scoped with `propagateAttributes`, plus one manual root observation per run
+that carries final outcome metadata (status, finish reason, error, skills)
+and the execute-less `askUser` gap observation (see
+`06-evals-observability.md`).
 
 ## Auth Posture
 

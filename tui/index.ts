@@ -21,7 +21,12 @@ import { buildModelMessages, type CompactTurn } from "../src/lib/agent/history";
 import { toolLabel, type RenderToolPart } from "../src/lib/agent/stream-parts";
 import { createDiskSkillSource } from "../src/lib/skills/disk";
 import { createNodeExecutor } from "../src/lib/sql/pglite-executor";
-import { getModel, hasRealModel, resolveModelDef } from "../src/lib/models/registry";
+import {
+  getModel,
+  hasRealModel,
+  openrouterProviderOptions,
+  resolveModelDef,
+} from "../src/lib/models/registry";
 import {
   normalizeAskUserAnswers,
   normalizeAskUserQuestions,
@@ -349,6 +354,7 @@ async function main() {
         messages: buildModelMessages(history),
         tools,
         maxSteps: 12,
+        providerOptions: openrouterProviderOptions(),
         runtimeContext,
         onChunk,
       });

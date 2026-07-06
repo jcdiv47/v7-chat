@@ -8,9 +8,11 @@
  * with `ai@7`) pointed at OpenRouter's gateway. Swapping to the native
  * `@openrouter/ai-sdk-provider` later is a change contained to this file.
  */
-import type { LanguageModel } from "ai";
+import { wrapLanguageModel, type LanguageModel } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import type { AgentProviderOptions } from "../agent/run";
 import type { ModelAlias, ReasoningEffort } from "../agent/types";
+import { langfuseCostMiddleware } from "./langfuse-cost";
 
 export const modelAliases = [
   "fast",
@@ -139,10 +141,22 @@ export function resolveModelDef(alias: ModelAlias): ModelDef {
   return buildRegistry()[alias];
 }
 
-/** Resolve an alias to a concrete AI SDK `LanguageModel`. */
+/** Resolve an alias to a concrete AI SDK `LanguageModel`. The Langfuse cost
+ * middleware is inert unless a tracing span is active. */
 export function getModel(alias: ModelAlias): LanguageModel {
   const def = resolveModelDef(alias);
-  return getProvider()(def.modelId);
+  return wrapLanguageModel({
+    model: getProvider()(def.modelId),
+    middleware: langfuseCostMiddleware,
+  });
+}
+
+/** Per-call OpenRouter provider options. Usage accounting must be requested
+ * explicitly (`usage.include`) or the response usage never carries `cost`;
+ * the openai-compatible provider spreads `providerOptions.openrouter` into
+ * the request body. See docs/specs/06-evals-observability.md → Cost Policy. */
+export function openrouterProviderOptions(): AgentProviderOptions {
+  return { openrouter: { usage: { include: true } } };
 }
 
 /** The raw OpenRouter model ID an alias currently resolves to (for logging). */

@@ -193,9 +193,13 @@ Langfuse an async observability view:
 - map `threadId` to Langfuse `sessionId`, so a chat session groups all of its
   agent runs into one replayable observability timeline
 - map each `runId` to one Langfuse trace: the worker makes one `agent.stream()`
-  call per run, so the AI SDK integration naturally yields one trace per run;
-  cross-link via `runId` in trace metadata/tags (a deterministic trace id would
-  require a manual root observation, which this plan avoids)
+  call per run inside one manual root observation (`analysis-run`), so all AI
+  SDK observations nest under a single trace; trace ids stay SDK-generated —
+  cross-link via `runId` in trace metadata/tags, not deterministic trace ids.
+  The manual root exists because ended AI SDK spans cannot be amended: it is
+  the attachment point for final outcome metadata (run status, finish reason,
+  error, active/loaded skills, written after the loop resolves) and for gap
+  observations
 - use the AI SDK 7 Langfuse integration as the primary source of model-call and
   tool-call observations
 - propagate trace-level attributes from the worker (`sessionId`, `userId`,
@@ -205,8 +209,11 @@ Langfuse an async observability view:
   language-model call to a generation observation
 - let the AI SDK integration map executed tool calls to tool observations
 - add manual Langfuse observations only for gaps the AI SDK integration cannot
-  see, such as an execute-less `askUser` call or SQL metadata that should be
-  attached without tracing result rows
+  see: the execute-less web `askUser` call is recorded as a tool observation
+  under the manual root when its tool-input chunk streams (question only — the
+  answer arrives as the next run's user turn). Normal tool executions, incl.
+  `runSql`, are covered by the integration's tool observations and get no
+  manual duplicate
 - attach skill version, active skills, loaded skills, model alias, underlying
   OpenRouter model id, run status, finish reason, and error metadata
 - attach eval labels and user feedback when those surfaces exist
@@ -233,6 +240,12 @@ Implementation requirements:
 - wrap `runAnalysisAgent` execution in Langfuse `propagateAttributes`, setting
   `traceName`, `sessionId = threadId`, `userId`, tags/environment, and metadata
   such as `runId`, `threadId`, model alias, model id, and skills version
+- inside that scope, wrap the agent call in a manual root observation
+  (`startActiveObservation("analysis-run", …, { asType: "agent" })`); once the
+  loop resolves, attach run status, finish reason, error text, and
+  active/loaded skills as `langfuse.trace.metadata.*` attributes on the
+  still-open root (the SDK's `updateTrace` was removed in v5; direct OTel
+  attributes on a live span are the supported path)
 - pass AI SDK `telemetry` options on the ToolLoopAgent call to set
   `functionId` and explicitly include safe runtime context keys
 - skip Langfuse initialization entirely when the keys are absent or the app

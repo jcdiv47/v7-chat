@@ -11,17 +11,40 @@ import {
   ToolLoopAgent,
   toUIMessageStream,
   type LanguageModel,
+  type LanguageModelUsage,
   type ModelMessage,
   type ToolCallRepairFunction,
+  type ToolLoopAgentSettings,
   type ToolSet,
   type UIMessageChunk,
 } from "ai";
 import type { AnalysisRuntimeContext, ReasoningEffort, RunEvent } from "./types";
 
+/** Provider-specific call options (`ai` does not re-export ProviderOptions). */
+export type AgentProviderOptions = NonNullable<
+  ToolLoopAgentSettings["providerOptions"]
+>;
+
+/** Run-level usage, widened for Langfuse readiness (docs/specs/06 → Run
+ * Records): provider token details plus OpenRouter raw usage and cost. */
 export type RunAgentUsage = {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
+  inputTokenDetails?: {
+    noCacheTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+  };
+  outputTokenDetails?: {
+    textTokens?: number;
+    reasoningTokens?: number;
+  };
+  /** Raw provider usage payloads, one per model step. A run makes one
+   * OpenRouter request per step, so there is no single merged raw payload. */
+  raw?: Record<string, unknown>[];
+  /** Sum of per-step OpenRouter `raw.cost` values, when present. */
+  costUsd?: number;
 };
 
 /** SDK-level timeouts: `chunkMs` catches a provider that stops sending stream
@@ -46,6 +69,9 @@ export type RunAgentOptions = {
   tools: ToolSet;
   /** Max tool-loop steps (spec: 8–12 for interactive chat). */
   maxSteps: number;
+  /** Provider-specific options forwarded on every model call (e.g. OpenRouter
+   * usage accounting — see registry.openrouterProviderOptions). */
+  providerOptions?: AgentProviderOptions;
   timeout?: RunAgentTimeout;
   runtimeContext: AnalysisRuntimeContext;
   abortSignal?: AbortSignal;
@@ -113,6 +139,74 @@ function addTokens(a?: number, b?: number): number | undefined {
   return a == null && b == null ? undefined : (a ?? 0) + (b ?? 0);
 }
 
+/** Sum one step's usage into the running total, preserving token details, the
+ * step's raw provider payload, and OpenRouter's per-step `raw.cost`. */
+function accumulateUsage(
+  acc: RunAgentUsage | undefined,
+  step: LanguageModelUsage,
+): RunAgentUsage {
+  const raw = step.raw as Record<string, unknown> | undefined;
+  const stepCost = typeof raw?.cost === "number" ? raw.cost : undefined;
+  return {
+    inputTokens: addTokens(acc?.inputTokens, step.inputTokens),
+    outputTokens: addTokens(acc?.outputTokens, step.outputTokens),
+    totalTokens: addTokens(acc?.totalTokens, step.totalTokens),
+    inputTokenDetails: {
+      noCacheTokens: addTokens(
+        acc?.inputTokenDetails?.noCacheTokens,
+        step.inputTokenDetails?.noCacheTokens,
+      ),
+      cacheReadTokens: addTokens(
+        acc?.inputTokenDetails?.cacheReadTokens,
+        step.inputTokenDetails?.cacheReadTokens,
+      ),
+      cacheWriteTokens: addTokens(
+        acc?.inputTokenDetails?.cacheWriteTokens,
+        step.inputTokenDetails?.cacheWriteTokens,
+      ),
+    },
+    outputTokenDetails: {
+      textTokens: addTokens(
+        acc?.outputTokenDetails?.textTokens,
+        step.outputTokenDetails?.textTokens,
+      ),
+      reasoningTokens: addTokens(
+        acc?.outputTokenDetails?.reasoningTokens,
+        step.outputTokenDetails?.reasoningTokens,
+      ),
+    },
+    raw: raw ? [...(acc?.raw ?? []), raw] : acc?.raw,
+    costUsd: stepCost != null ? (acc?.costUsd ?? 0) + stepCost : acc?.costUsd,
+  };
+}
+
+function pruneEmptyDetails<T extends Record<string, number | undefined>>(
+  details: T | undefined,
+): T | undefined {
+  if (!details) return undefined;
+  return Object.values(details).some((v) => v != null) ? details : undefined;
+}
+
+/** Final run usage: SDK-computed aggregates when available (they also cover
+ * provider-merged token details), always paired with the per-step raw
+ * payloads and summed cost from the accumulation. */
+function buildRunUsage(
+  aggregate: LanguageModelUsage | undefined,
+  acc: RunAgentUsage | undefined,
+): RunAgentUsage | undefined {
+  const base = aggregate ?? acc;
+  if (!base) return undefined;
+  return {
+    inputTokens: base.inputTokens,
+    outputTokens: base.outputTokens,
+    totalTokens: base.totalTokens,
+    inputTokenDetails: pruneEmptyDetails(base.inputTokenDetails),
+    outputTokenDetails: pruneEmptyDetails(base.outputTokenDetails),
+    raw: acc?.raw?.length ? acc.raw : undefined,
+    costUsd: acc?.costUsd,
+  };
+}
+
 /** Appended to the system instructions on the final allowed step (tools are
  * disabled for that step) so the run ends with an answer instead of a
  * mid-investigation tool call cut off by the step limit. */
@@ -147,10 +241,24 @@ export async function runAnalysisAgent(
     temperature: opts.temperature,
     maxOutputTokens: opts.maxOutputTokens,
     reasoning: opts.reasoning,
+    providerOptions: opts.providerOptions,
     timeout: opts.timeout,
     stopWhen: stepCountIs(opts.maxSteps),
     experimental_repairToolCall: repairTruncatedToolCall,
     runtimeContext: opts.runtimeContext as Record<string, unknown>,
+    // Inert unless a telemetry integration is registered (web worker only).
+    // Only scalar runtime context keys are exposed — no payloads.
+    telemetry: {
+      functionId: "analysis-agent",
+      includeRuntimeContext: {
+        requestId: true,
+        runId: true,
+        threadId: true,
+        userId: true,
+        modelAlias: true,
+        skillsVersion: true,
+      },
+    },
     prepareStep: async ({ stepNumber }) => {
       // stepNumber is zero-based; the last allowed step forbids tool calls
       // (plus a wrap-up notice), forcing a final answer instead of a truncated
@@ -203,11 +311,7 @@ export async function runAnalysisAgent(
     },
     onStepEnd: async (step) => {
       stepsCompleted += 1;
-      accUsage = {
-        inputTokens: addTokens(accUsage?.inputTokens, step.usage.inputTokens),
-        outputTokens: addTokens(accUsage?.outputTokens, step.usage.outputTokens),
-        totalTokens: addTokens(accUsage?.totalTokens, step.usage.totalTokens),
-      };
+      accUsage = accumulateUsage(accUsage, step.usage);
       await opts.onEvent?.({
         type: "step.finished",
         createdAt: Date.now(),
@@ -271,19 +375,14 @@ export async function runAnalysisAgent(
 
   const finishReason = (await settle(result.finishReason)) ?? (aborted ? "abort" : "unknown");
   // Fall back to the per-step accumulation when the aggregate promises reject
-  // (aborted/failed runs), so partial usage still lands in the run record.
-  const rawUsage = ((await settle(result.usage)) as RunAgentUsage | undefined) ?? accUsage;
+  // (aborted/failed runs), so partial usage — including raw payloads and cost
+  // — still lands in the run record.
+  const aggregateUsage = await settle(result.usage);
   const steps = (await settle(result.steps))?.length ?? stepsCompleted;
 
   return {
     finishReason: String(finishReason),
-    usage: rawUsage
-      ? {
-          inputTokens: rawUsage.inputTokens,
-          outputTokens: rawUsage.outputTokens,
-          totalTokens: rawUsage.totalTokens,
-        }
-      : undefined,
+    usage: buildRunUsage(aggregateUsage, accUsage),
     steps,
     aborted,
     errorText,

@@ -14,6 +14,7 @@ import { getDb, getPool } from "./db/client";
 import { runs } from "./db/schema";
 import { finalizeInterruptedRun, publishRunEnd } from "./runs-service";
 import { activeRuns, isDraining, setDraining } from "./run-worker";
+import { flushTelemetry } from "./telemetry";
 
 const SWEEP_INTERVAL_MS = 60_000;
 
@@ -103,6 +104,10 @@ export async function drainAndExit(signalName: string): Promise<void> {
       { force: true },
     ).catch((err) => console.error(`[drain] finalize ${runId} failed:`, err));
   }
+
+  // Spans are batched/exported asynchronously; without this final flush the
+  // tail of every run in flight is dropped from Langfuse.
+  await flushTelemetry();
 
   await getPool()
     .end()

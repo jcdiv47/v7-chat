@@ -16,7 +16,7 @@ import { buildInstructions } from "../src/lib/agent/instructions";
 import { createAgentTools } from "../src/lib/agent/tools";
 import { createDiskSkillSource } from "../src/lib/skills/disk";
 import { createNodeExecutor } from "../src/lib/sql/pglite-executor";
-import { getModel, hasRealModel, resolveModelDef } from "../src/lib/models/registry";
+import { getModel, hasRealModel, openrouterProviderOptions, resolveModelDef } from "../src/lib/models/registry";
 import type { AgentToolDeps, AnalysisRuntimeContext } from "../src/lib/agent/types";
 import type { PostgresExecutor } from "../src/lib/sql/executor";
 
@@ -145,7 +145,7 @@ async function main() {
       if (c.type === "tool-input-available" && c.toolName === "askUser") cap.asked = true;
     };
     try {
-      await runAnalysisAgent({ model: getModel("analyst"), temperature: def.temperature, maxOutputTokens: def.maxOutputTokens, reasoning: def.reasoning, instructions: buildInstructions(skills.list()), messages: [{ role: "user", content: p.prompt }], tools, maxSteps: 12, runtimeContext: rc, onChunk });
+      await runAnalysisAgent({ model: getModel("analyst"), temperature: def.temperature, maxOutputTokens: def.maxOutputTokens, reasoning: def.reasoning, instructions: buildInstructions(skills.list()), messages: [{ role: "user", content: p.prompt }], tools, maxSteps: 12, providerOptions: openrouterProviderOptions(), runtimeContext: rc, onChunk });
       cap.answer = textParts.join("");
     } catch (err) {
       cap.answer = `ERROR: ${err instanceof Error ? err.message : String(err)}`;

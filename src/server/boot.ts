@@ -8,12 +8,17 @@ import { runMigrations } from "./db/migrate";
 import { getDb } from "./db/client";
 import { backfillThreadTitleSearchTerms } from "./search/title-index";
 import { startSweeper, drainAndExit } from "./sweeper";
+import { initTelemetry } from "./telemetry";
 
 const globalStore = globalThis as unknown as { __v7Booted?: boolean };
 
 export async function bootServer(): Promise<void> {
   if (globalStore.__v7Booted) return;
   globalStore.__v7Booted = true;
+
+  // Before anything else: the Langfuse integration must be registered before
+  // the first ToolLoopAgent run starts.
+  const tracing = initTelemetry();
 
   await runMigrations();
   const indexedTitles = await backfillThreadTitleSearchTerms(getDb());
@@ -23,6 +28,7 @@ export async function bootServer(): Promise<void> {
   process.once("SIGINT", () => void drainAndExit("SIGINT"));
 
   console.log(
-    `[boot] migrations applied, indexed ${indexedTitles} missing thread titles, sweeper started`,
+    `[boot] migrations applied, indexed ${indexedTitles} missing thread titles, ` +
+      `sweeper started, Langfuse tracing ${tracing ? "on" : "off"}`,
   );
 }
