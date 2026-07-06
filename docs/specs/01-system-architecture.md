@@ -55,9 +55,10 @@ flowchart LR
 - **Scale-out:** the RunBus is in-memory because V1 runs one process. If the
   app ever runs more than one replica, swap RunBus for Redis pub/sub behind the
   same interface.
-- **Langfuse posture:** Langfuse is an async observability sink, not source of
-  truth. App Postgres keeps product state and data artifacts; Langfuse receives
-  trace/session metadata, model usage, tool activity, and SQL statements.
+- **Langfuse posture (V2 target):** Langfuse is an async observability sink,
+  not source of truth. App Postgres keeps product state and data artifacts;
+  Langfuse receives trace/session metadata, model usage, tool activity, and SQL
+  statements once tracing is enabled.
 
 ## Component Responsibilities
 
@@ -313,11 +314,21 @@ LANGFUSE_BASE_URL=
 LANGFUSE_ENVIRONMENT=
 ```
 
+`LANGFUSE_ENVIRONMENT` is an app-level variable passed explicitly to the
+Langfuse span processor; the SDK's own auto-read variable is named differently
+(`LANGFUSE_TRACING_ENVIRONMENT` in the v4 SDK — verify during implementation)
+and is not relied on.
+
 When Langfuse is enabled, `threadId` maps to the Langfuse session and each
-`runId` maps to a trace. OpenRouter raw usage is persisted in `runs.usage`; if
-OpenRouter returns raw cost, that value is the source of truth for Langfuse
-cost reporting. SQL tracing records the query and execution metadata only, not
-result rows or result previews.
+`runId` maps to a trace. OpenRouter usage accounting must be requested per
+call (`usage: { include: true }` via provider options), per-step raw usage is
+persisted with run events, and summed OpenRouter raw cost is the source of
+truth for Langfuse cost reporting. SQL tracing adds the query and execution
+metadata only — never artifact payloads; the model-visible result preview
+inside model-call observations is accepted (see `06-evals-observability.md`).
+The integration should use AI SDK 7 telemetry registered through
+`LangfuseVercelAiSdkIntegration`, exported with `LangfuseSpanProcessor`, and
+scoped with `propagateAttributes`.
 
 ## Auth Posture
 

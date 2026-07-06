@@ -32,8 +32,6 @@ export type ModelDef = {
    * only forwards minimal/low/medium/high/xhigh; "none" and "provider-default"
    * send nothing, i.e. the provider's default applies. */
   reasoning?: ReasoningEffort;
-  /** Optional cost metadata (USD per 1M tokens) for run cost estimation. */
-  cost?: { inputPerMTokens?: number; outputPerMTokens?: number };
 };
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";

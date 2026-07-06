@@ -125,10 +125,13 @@ The preview has three consumers with different sizes:
 - the persistent stream's tool-output part carries only columns, row count, and a
   ~20-row preview, to keep the stream body small
 
-Observability traces should not carry result rows. `run_events` and Langfuse
-traces should log the SQL statement, purpose, success/failure, execution time,
-and concise error metadata only; row previews and full result payloads belong
-in table artifacts.
+Observability records should not carry full result payloads. `run_events` and
+dedicated Langfuse SQL observations log the SQL statement, purpose,
+success/failure, execution time, and concise error metadata only; the full
+100-500 row preview belongs in table artifacts. The model-visible tool result
+(up to `maxRows`) will still appear inside Langfuse model-call observations as
+part of the recorded model context — that is accepted (see
+`06-evals-observability.md` → SQL Trace Policy).
 
 ## Useful Starter Questions
 

@@ -7,6 +7,12 @@ debug behavior and migrate to Langfuse later. App Postgres remains the source
 of truth for product state; Langfuse is an observability sink, not a dependency
 for run correctness.
 
+Current V1 run logging captures lifecycle events, model/run identifiers,
+tool/SQL activity, and aggregate token counts when the provider reports them.
+Before enabling Langfuse, the run usage shape must be widened so the app
+preserves provider usage details instead of narrowing them to three aggregate
+counts.
+
 ## Run Records
 
 Suggested entities:
@@ -32,7 +38,7 @@ type AgentRun = {
 };
 ```
 
-`usage` should preserve both normalized fields and the provider payload:
+Target usage shape for the Langfuse-readiness work:
 
 ```ts
 type AgentRunUsage = {
@@ -48,12 +54,20 @@ type AgentRunUsage = {
     textTokens?: number;
     reasoningTokens?: number;
   };
-  /** Raw provider usage payload, especially OpenRouter's reported cost. */
-  raw?: Record<string, unknown>;
-  /** Prefer OpenRouter `raw.cost` when present. */
+  /** Raw provider usage payloads, one per model step. A run makes one
+   * OpenRouter request per step, so there is no single merged raw payload. */
+  raw?: Record<string, unknown>[];
+  /** Sum of per-step OpenRouter `raw.cost` values, when present. */
   costUsd?: number;
 };
 ```
+
+Per-step usage (including the step's raw payload) already has a home: the
+`step.finished` run event logs `step.usage`. The run-level record keeps the
+summed aggregates plus `costUsd` = sum of per-step `raw.cost`. Note the runner
+also accumulates usage per step as a fallback for aborted/failed runs (the
+aggregate result promises reject in that case); the widening work must extend
+that fallback path too, or aborted runs lose token details and cost.
 
 ```ts
 type AgentRunEvent = {
@@ -102,13 +116,15 @@ type AgentArtifact = {
 - truncation flag
 - error type
 - total duration
-- token usage if provided, including cache and reasoning-token details
-- OpenRouter raw usage payload, when provided
-- OpenRouter raw `usage.cost`, when provided
+- token usage if provided
+- Langfuse-readiness target: cache and reasoning-token details
+- Langfuse-readiness target: OpenRouter raw usage payload, when provided
+- Langfuse-readiness target: OpenRouter raw `usage.cost`, when provided
 
 Cost truth comes from OpenRouter, not a local pricing table. When
-OpenRouter returns `usage.raw.cost`, trust that value and persist it in
-`runs.usage.raw` for auditability. Also copy it into a normalized `costUsd`
+OpenRouter returns `usage.raw.cost`, trust that value. The Langfuse-readiness
+implementation should persist per-step raw usage in run events for
+auditability and sum per-step `raw.cost` into a normalized run-level `costUsd`
 field for querying. Do not add Langfuse custom model definitions as a fallback
 while OpenRouter raw cost is absent; pricing can vary by OpenRouter provider
 route, so inferred local pricing is not worth maintaining for V1/V2.
@@ -176,12 +192,21 @@ Langfuse an async observability view:
 
 - map `threadId` to Langfuse `sessionId`, so a chat session groups all of its
   agent runs into one replayable observability timeline
-- map each `runId` to one Langfuse trace, preferably with a deterministic trace
-  id derived from `runId` for easy cross-linking
-- wrap the worker run in a root `agent` observation
-- map each ToolLoopAgent model step / language-model call to a generation
-  observation
-- map tool calls to tool observations
+- map each `runId` to one Langfuse trace: the worker makes one `agent.stream()`
+  call per run, so the AI SDK integration naturally yields one trace per run;
+  cross-link via `runId` in trace metadata/tags (a deterministic trace id would
+  require a manual root observation, which this plan avoids)
+- use the AI SDK 7 Langfuse integration as the primary source of model-call and
+  tool-call observations
+- propagate trace-level attributes from the worker (`sessionId`, `userId`,
+  run/thread ids, model alias, skills version) so every AI SDK observation can
+  be filtered and grouped in Langfuse
+- let the AI SDK integration map each ToolLoopAgent model step /
+  language-model call to a generation observation
+- let the AI SDK integration map executed tool calls to tool observations
+- add manual Langfuse observations only for gaps the AI SDK integration cannot
+  see, such as an execute-less `askUser` call or SQL metadata that should be
+  attached without tracing result rows
 - attach skill version, active skills, loaded skills, model alias, underlying
   OpenRouter model id, run status, finish reason, and error metadata
 - attach eval labels and user feedback when those surfaces exist
@@ -190,16 +215,58 @@ Use the AI SDK 7 `telemetry` option together with the Langfuse AI SDK
 integration; do not use the deprecated `experimental_telemetry` API for new
 code.
 
+### Langfuse Integration Mechanism
+
+Use one primary integration path: AI SDK 7 telemetry exported to Langfuse
+through OpenTelemetry.
+
+Implementation requirements:
+
+- install the Langfuse AI SDK 7 and OpenTelemetry packages:
+  `@langfuse/client`, `@langfuse/vercel-ai-sdk`, `@langfuse/tracing`,
+  `@langfuse/otel`, and `@opentelemetry/sdk-node`
+- initialize OpenTelemetry once at process boot with `NodeSDK` and
+  `LangfuseSpanProcessor`
+- register `new LangfuseVercelAiSdkIntegration()` once with AI SDK
+  `registerTelemetry`
+- import that instrumentation before any `ToolLoopAgent` run starts
+- wrap `runAnalysisAgent` execution in Langfuse `propagateAttributes`, setting
+  `traceName`, `sessionId = threadId`, `userId`, tags/environment, and metadata
+  such as `runId`, `threadId`, model alias, model id, and skills version
+- pass AI SDK `telemetry` options on the ToolLoopAgent call to set
+  `functionId` and explicitly include safe runtime context keys
+- skip Langfuse initialization entirely when the keys are absent or the app
+  runs in demo mode (`MODEL_PROVIDER=mock`)
+- flush the `LangfuseSpanProcessor` on graceful shutdown (SIGTERM/SIGINT):
+  spans are batched and exported asynchronously, so a deploy without a final
+  `forceFlush` drops the tail of every run in flight
+
+Do not build a parallel manual trace tree for model calls and normal tool
+executions. Manual Langfuse observations are reserved for metadata enrichment
+and integration gaps.
+
 ### Langfuse Cost Policy
 
 Cost should be based on OpenRouter's own usage accounting:
 
-1. Trust OpenRouter `usage.raw.cost` when present.
-2. Persist `usage.raw` unchanged in `runs.usage` so we can audit exactly what
-   OpenRouter returned.
-3. Verify whether the Langfuse AI SDK integration receives
+1. Request usage accounting on every OpenRouter call: OpenRouter only includes
+   `cost` in usage when the request body carries `usage: { include: true }`.
+   The openai-compatible provider spreads `providerOptions.openrouter` into the
+   request body, so pass it there. Without this opt-in, `usage.raw.cost` is
+   always absent and the rest of this policy never fires.
+2. Trust OpenRouter `usage.raw.cost` when present.
+3. Persist each step's raw usage payload unchanged (in `step.finished` run
+   events) so we can audit exactly what OpenRouter returned; sum per-step
+   `raw.cost` into the run-level `costUsd`.
+4. Verify whether the Langfuse AI SDK integration receives
    `costDetails.total` automatically.
-4. If not, manually pass `costDetails.total = usage.raw.cost`.
+5. If not, manually pass `costDetails.total = usage.raw.cost`.
+
+Before relying on this in production, verify a real streamed OpenRouter call in
+the selected AI SDK provider path and confirm exactly where the final SSE usage
+payload lands (`step.usage.raw`, provider metadata, or raw chunks). The
+implementation should persist the raw provider usage object from that location
+without re-pricing it locally.
 
 Do not configure Langfuse custom model definitions as the first fallback for
 OpenRouter cost. Custom model definitions can be revisited only if we later
@@ -207,7 +274,8 @@ decide estimated cost is useful when OpenRouter does not return raw cost.
 
 ### SQL Trace Policy
 
-Trace SQL activity, not result data. A SQL observation should include:
+Trace SQL activity, not full result data. A dedicated SQL observation (and the
+`sql.executed` run event) should include:
 
 - SQL statement
 - purpose, when supplied
@@ -215,9 +283,19 @@ Trace SQL activity, not result data. A SQL observation should include:
 - execution time
 - concise error text, when failed
 
-Do not send SQL result rows, row previews, table artifact payloads, or full
-result sets to Langfuse. Result inspection belongs in App Postgres artifacts and
-the application UI, not the tracing backend.
+Do not send table artifact payloads or the full 100-500 row artifact preview
+to Langfuse. Result inspection belongs in App Postgres artifacts and the
+application UI, not the tracing backend.
+
+One deliberate exception: the AI SDK integration records model-call inputs,
+outputs, and tool results, and the model's context contains the tool-result
+preview (up to `maxRows` rows). That model-visible preview is accepted inside
+generation/tool observations — it is exactly the context needed to debug model
+behavior, and stripping it would gut the tracing. The policy above governs
+what we *add* to Langfuse, not what the model already saw. If stricter
+redaction is ever required, use the `LangfuseSpanProcessor` masking hook or
+the AI SDK telemetry input/output recording controls, not a parallel manual
+trace tree.
 
 `run_chunks` also have no Langfuse mapping. They are transient SSE replay
 plumbing; finalized assistant messages and Langfuse traces are the durable

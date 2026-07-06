@@ -47,7 +47,9 @@ The model registry should support:
 - default temperature and max token settings
 - model display names for logs
 - future fallback policy
-- cost metadata when available
+
+The registry holds no pricing data: cost comes from OpenRouter's per-response
+usage accounting, not a local per-model table (provider routes vary).
 
 ## Agent Instructions
 
@@ -296,12 +298,17 @@ Capture these events:
 - run finished
 - run failed
 
-This is the V1 substitute for Langfuse. Preserve token usage with as much
-provider detail as the AI SDK exposes, including cache token details,
-reasoning-token details, and raw provider usage. For OpenRouter, persist
-`usage.raw` unchanged and treat `usage.raw.cost` as the authoritative cost when
-present.
+This is the V1 substitute for Langfuse. Today the runner stores aggregate token
+usage when available; the Langfuse-readiness work should widen that usage
+record to preserve as much provider detail as the AI SDK exposes, including
+cache token details, reasoning-token details, and raw provider usage. For
+OpenRouter, request usage accounting per call (`usage: { include: true }` via
+`providerOptions.openrouter` — cost is omitted without it), persist each
+step's raw usage payload unchanged in its `step.finished` run event, and treat
+summed per-step `raw.cost` as the authoritative run cost when present.
 
-When Langfuse tracing is added, SQL observations should contain the SQL
-statement and minimal execution metadata only. Do not trace SQL result rows,
-previews, or table artifact payloads.
+When Langfuse tracing is added, dedicated SQL observations should contain the
+SQL statement and minimal execution metadata only. Do not add table artifact
+payloads or the full artifact preview to any observation; the model-visible
+tool-result preview recorded by the AI SDK integration inside model-call
+observations is accepted (see `06-evals-observability.md` → SQL Trace Policy).
