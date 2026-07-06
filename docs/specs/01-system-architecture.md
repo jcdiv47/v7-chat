@@ -9,7 +9,7 @@ live stream chunks through an in-memory RunBus, and sweeps stale runs.
 There are two Postgres databases:
 
 - **App Postgres** stores product state: threads, messages, runs, events,
-  artifacts, and persisted stream chunks.
+  artifacts, persisted stream chunks, and the app-managed title-search index.
 - **Intermediate Postgres** is the read-only analytical database the agent can
   query through typed tools.
 
@@ -20,7 +20,7 @@ intermediate database through an external materialization pipeline.
 flowchart LR
   U["User"] --> FE["Next.js frontend\nAI SDK UI + Tailwind + shadcn/ui"]
   FE --> API["Next.js + tRPC\nqueries, mutations, SSE"]
-  API --> APG["App Postgres\nthreads, messages, runs,\nevents, artifacts, chunks"]
+  API --> APG["App Postgres\nthreads, messages, runs,\nevents, artifacts, chunks,\nsearch terms"]
   API --> WRK["Run worker\nin-process promise"]
   WRK --> AG["AI SDK V7 ToolLoopAgent"]
   WRK --> BUS["RunBus\nin-memory pub/sub"]
@@ -41,6 +41,10 @@ flowchart LR
 - **App database:** Railway Postgres in production, local Postgres in
   development. The app uses `pg` plus Drizzle over `DATABASE_URL`; with one
   long-lived process, no PgBouncer or Redis is required for V1.
+- **Search:** standard Railway Postgres only. V1 does not require custom
+  Postgres extensions such as PGroonga or `pg_trgm`; the app tokenizes titles
+  into English terms and Chinese bigrams and stores them in a separate search
+  index table.
 - **Migrations:** schema lives in `src/server/db/schema.ts`; generated
   migrations live in `drizzle/` and apply once at boot.
 - **API:** tRPC v11 + React Query provides typed queries, mutations, and the
@@ -72,7 +76,8 @@ flowchart LR
 ### App Backend And tRPC
 
 - Store application state in App Postgres, not analytical data.
-- Own threads, messages, runs, run events, artifacts, and stream chunks.
+- Own threads, messages, runs, run events, artifacts, stream chunks, and the
+  title-search index.
 - Expose tRPC routers for chat actions, thread/message reads, run status and
   streaming, artifacts, and events.
 - Resolve the signed-in Clerk user in tRPC context and filter owned data by
@@ -104,8 +109,8 @@ flowchart LR
 
 ### App Postgres
 
-- Hold product state for threads, messages, runs, run events, artifacts, and
-  stream chunks.
+- Hold product state for threads, messages, runs, run events, artifacts, stream
+  chunks, and search index rows.
 - Store all IDs as UUIDv7 values generated app-side.
 - Keep `user_id text` on owned rows because Clerk user IDs are strings;
   BetterAuth would fit the same ownership column if adopted later.
@@ -135,6 +140,39 @@ The canonical schema is `src/server/db/schema.ts`.
 | `run_events` | Ordered structured events for debugging and the developer run-events panel. |
 | `artifacts` | SQL, table, view, finding, and error artifacts tied to runs and optionally messages. `chartSpec` remains in the type union for legacy rows; new charts use `view`. |
 | `run_chunks` | Persisted live stream replay. Each row is one JSONL-encoded UI message chunk line keyed by `(run_id, seq)`. The run is the stream; clients subscribe by `runId` and resume by sequence cursor. |
+| `search_terms` | App-managed title-search index. V1 stores one row per normalized title token/bigram, scoped by `user_id`, `thread_id`, `source_kind` (`thread_title`), `source_id` (the thread id for title rows), and `term`. The table is maintained by thread create/rename/delete code instead of adding search columns to `threads`. |
+
+## Search Indexing
+
+V1 search targets chat titles only. The search index is deliberately separate
+from `threads` and `messages` so title search can evolve without bolting
+derived token data onto canonical product rows.
+
+Tokenization is app-side:
+
+- English and number text is lowercased and split into normalized terms.
+- Chinese/CJK title text is expanded into overlapping bigrams; single-character
+  fallback terms may be stored for titles or queries shorter than two CJK
+  characters.
+- Mixed Chinese/English titles store both token families.
+
+The `threads.search` procedure tokenizes the query with the same logic, looks up
+matching `search_terms` rows for the current `ctx.userId`, groups by thread, and
+ranks by matched term count and recency. Empty query continues to show recent
+threads from `threads.list`.
+
+Indexes should support lookup by `(user_id, term)` and cleanup by
+`(source_kind, source_id)` so rename/delete can replace a thread title's terms
+without scanning canonical thread or message data.
+
+Future directions:
+
+- Add message search by indexing `messages.text` rows into the same separate
+  search table under a `message` source kind with `source_id = message.id`, then
+  return message snippets.
+- Add fuzzy search for typo tolerance and partial title matches.
+- Move to PGroonga if we need database-native Chinese segmentation, richer
+  multilingual ranking, or better highlighting while staying on Postgres.
 
 ## API Surface
 
@@ -150,8 +188,9 @@ The public API is tRPC. Router procedures:
 | `events` | `listForRun` |
 
 `runs.stream` is the only push channel in V1. Sidebar and artifact-panel data
-use normal query invalidation after mutations; title search uses SQL `ILIKE`,
-with Postgres full-text search (`tsvector`) as the upgrade path.
+use normal query invalidation after mutations. Title search uses the separate
+app-managed `search_terms` table rather than SQL `ILIKE`, `tsvector`, or
+database extension-backed search.
 
 ## Runtime Flows
 

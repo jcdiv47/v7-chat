@@ -33,6 +33,7 @@ The V1 product should feel like an internal analyst that can inspect a small bus
 - Make in-flight runs resumable: a browser refresh mid-run reattaches to the live thinking, tool-call, and answer stream.
 - Query only the intermediate Postgres database.
 - Support basic table/chart/narrative outputs.
+- Support basic Chinese/English search over saved chat titles.
 - Provide a TUI entrypoint for fast local testing.
 
 ## V1 Non-Goals
@@ -46,6 +47,7 @@ The V1 product should feel like an internal analyst that can inspect a small bus
 - No provider-native skill upload requirement.
 - No multi-provider model strategy beyond OpenRouter.
 - No complex data catalog product.
+- No message-body search in V1.
 
 ## V2 Candidates
 
@@ -57,6 +59,10 @@ The V1 product should feel like an internal analyst that can inspect a small bus
 - More datasets and tenant-specific metadata.
 - User-editable skill or prompt configuration.
 - Org scoping and shared workspaces.
+- Message-body search across user and assistant turns.
+- Fuzzy search for typos and partial matches.
+- PGroonga-backed multilingual search if we later want database-native Chinese
+  segmentation and ranking.
 
 ## Initial Dataset
 

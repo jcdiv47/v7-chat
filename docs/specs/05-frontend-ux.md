@@ -83,18 +83,23 @@ Each session row shows:
 
 ## Global Search Modal
 
-A command-palette-style search over sessions and projects.
+A command-palette-style search over saved chat sessions. V1 searches chat
+titles only; project search and message-body search are deferred.
 
 Requirements:
 
 - Opens from the sidebar search trigger and a keyboard shortcut (`Cmd/Ctrl+K`).
 - Centered modal over a dimmed backdrop; closes on `Esc`, backdrop click, or the `X`.
-- Single search input (`Search chats and projects`) with a leading search icon.
-- Results are a scrollable list; each row has a leading icon, the session/project title,
+- Single search input (`Search chats`) with a leading search icon.
+- Results are a scrollable list; each row has a leading icon, the session title,
   and a right-aligned recency label (e.g. `Today`, `Past week`, `Past month`).
-- Fuzzy match on title; empty query shows recent sessions.
+- Non-empty queries use the app-managed title-search index: normalized English
+  terms plus Chinese bigrams. Empty query shows recent sessions.
 - Full keyboard control: arrow keys move selection, the highlighted row shows a `↵`
   hint, and `Enter` opens it.
+
+Future directions for the same modal include fuzzy search, PGroonga-backed
+multilingual search, project search, and message-result rows with snippets.
 
 ## Conversation View
 
@@ -368,7 +373,7 @@ type ArtifactViewModel = {
 
 - The shell matches the reference: sidebar with pinned and recent sessions, a
   conversation column, and an on-demand artifact panel.
-- User can open a global search modal, search chats/projects, and open a result via
+- User can open a global search modal, search chat titles, and open a result via
   keyboard or click.
 - User can pin/unpin, rename, and delete sessions from the sidebar.
 - During a run, thinking tokens and tool calls stream live inside an open work block,

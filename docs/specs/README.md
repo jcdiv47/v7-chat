@@ -15,6 +15,9 @@ This directory captures the product and technical specs for the V1 agentic busin
   ownership column leaves room for BetterAuth if the auth provider changes.
 - Agent skills are bundled into the server at build time; the TUI reads the same skill files from disk.
 - Messages are stored as AI SDK UI messages with full parts fidelity; prior-turn history is compacted before being sent to the model.
+- Search stays on standard Railway Postgres in V1. The app maintains a separate
+  title-search index table with app-side English tokenization and Chinese bigram
+  tokenization; message-body search is deferred.
 - Business analysis queries run only against a separate intermediate Postgres database.
 - Raw business Postgres is outside the agent runtime path.
 - V1 database scope is small: `cities`, `malls`, and `stores`.
@@ -24,6 +27,8 @@ This directory captures the product and technical specs for the V1 agentic busin
 - Provider-native skill upload is not required for V1; use provider-neutral local agent skills.
 - Langfuse is deferred to V2, but V1 should log enough run metadata to migrate later.
 - Full semantic layer and strict SQL governance are V2 concerns.
+- Fuzzy search, PGroonga-backed multilingual search, and message-body search
+  remain future directions.
 
 ## Spec Index
 

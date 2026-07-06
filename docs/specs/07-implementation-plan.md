@@ -43,6 +43,7 @@ Deliverables:
 - agent runs
 - run events
 - `run_chunks` wired in for persisted JSONL stream replay
+- separate `search_terms` table for app-managed title search
 - run liveness: heartbeat and stop-request fields, scheduled stale-run sweeper
 - artifacts
 
@@ -53,6 +54,8 @@ Acceptance criteria:
 - A partial assistant message can be reconstructed, in order, from a persisted stream body.
 - A `running` run with a stale heartbeat is marked failed by the sweeper.
 - Artifacts can be attached to a run.
+- Thread titles can be tokenized into English terms and Chinese bigrams without
+  adding derived search columns to `threads`.
 
 ## Phase 3: Postgres Query Tools
 
@@ -118,7 +121,7 @@ Deliverables:
 
 - Claude-like chat shell (sidebar + conversation + artifact panel)
 - sidebar with pinned and recent session sections
-- global search modal (Cmd/Ctrl+K)
+- global title search modal (Cmd/Ctrl+K)
 - chat streaming through tRPC mutation + `runs.stream` SSE subscription
 - resumable streaming: cursor-based JSONL replay from `run_chunks`, then live
   tailing from RunBus
@@ -133,7 +136,7 @@ Acceptance criteria:
 - User can see streamed thinking and tool calls fold into a summary, then a streamed answer.
 - Refreshing mid-run reattaches to the live stream; the run continues and completes with no duplicated or lost content.
 - User can stop a run mid-stream and retry a message; retry appends a new run.
-- User can browse pinned/recent sessions and open a session via the search modal.
+- User can browse pinned/recent sessions and open a session via the title search modal.
 - User can inspect SQL and result preview.
 - Basic chart appears for grouped results.
 
@@ -177,3 +180,7 @@ V1 is done when:
 - Scheduled analysis.
 - User feedback and eval dashboards.
 - Multi-dataset support.
+- Message-body search over user and assistant turns.
+- Fuzzy search for typo tolerance and partial matches.
+- PGroonga-backed multilingual search if standard Postgres plus app-side
+  tokenization is not enough.
