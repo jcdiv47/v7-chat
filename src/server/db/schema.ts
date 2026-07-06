@@ -39,6 +39,27 @@ export const threads = pgTable(
   ],
 );
 
+export const searchTerms = pgTable(
+  "search_terms",
+  {
+    userId: text("user_id").notNull(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => threads.id, { onDelete: "cascade" }),
+    sourceKind: text("source_kind", { enum: ["thread_title", "message"] }).notNull(),
+    sourceId: uuid("source_id").notNull(),
+    term: text("term").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({
+      columns: [t.userId, t.sourceKind, t.sourceId, t.term],
+    }),
+    index("search_terms_user_term_idx").on(t.userId, t.term),
+    index("search_terms_source_idx").on(t.sourceKind, t.sourceId),
+  ],
+);
+
 export const messages = pgTable(
   "messages",
   {
@@ -167,6 +188,7 @@ export const runChunks = pgTable(
 );
 
 export type ThreadRow = typeof threads.$inferSelect;
+export type SearchTermRow = typeof searchTerms.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
 export type RunEventRow = typeof runEvents.$inferSelect;

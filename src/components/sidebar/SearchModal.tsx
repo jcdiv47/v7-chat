@@ -8,8 +8,8 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 
 type Thread = ThreadSummary;
 
-/** Command-palette search over sessions. SQL ILIKE match on title (tsvector is
- * the upgrade path); empty query shows recents. Full keyboard control. */
+/** Command-palette title search over saved chats. Empty query shows recents.
+ * Full keyboard control. */
 export function SearchModal({
   open,
   onOpenChange,
@@ -64,14 +64,14 @@ export function SearchModal({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="top-[12%] max-w-xl overflow-hidden p-0" onKeyDown={onKeyDown}>
-        <DialogTitle className="sr-only">Search chats and projects</DialogTitle>
+        <DialogTitle className="sr-only">Search chats</DialogTitle>
         <div className="flex items-center gap-2 border-b border-border px-3.5">
           <Search className="size-4 text-muted-foreground" />
           <input
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search chats and projects"
+            placeholder="Search chats"
             className="h-12 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
         </div>

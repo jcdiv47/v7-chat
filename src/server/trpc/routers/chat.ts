@@ -26,6 +26,7 @@ import {
   type Dbx,
 } from "../../runs-service";
 import { isDraining, startRun } from "../../run-worker";
+import { replaceThreadTitleSearchTerms } from "../../search/title-index";
 import { publicProcedure, router } from "../trpc";
 
 const modelAliasSchema = z.enum(["fast", "analyst", "sql", "summarizer"]);
@@ -124,13 +125,19 @@ export const chatRouter = router({
             await lockThread(tx, tid, ctx.userId);
           } else {
             tid = newId();
+            const title = deriveTitle(trimmed);
             await tx.insert(threads).values({
               id: tid,
               userId: ctx.userId,
-              title: deriveTitle(trimmed),
+              title,
               pinned: false,
               createdAt: now,
               updatedAt: now,
+            });
+            await replaceThreadTitleSearchTerms(tx, {
+              userId: ctx.userId,
+              threadId: tid,
+              title,
             });
           }
 
@@ -152,10 +159,19 @@ export const chatRouter = router({
             .from(messages)
             .where(eq(messages.threadId, tid));
           if (count === 1) {
-            await tx
+            const title = deriveTitle(trimmed);
+            const [thread] = await tx
               .update(threads)
-              .set({ title: deriveTitle(trimmed) })
-              .where(and(eq(threads.id, tid), eq(threads.title, "New chat")));
+              .set({ title })
+              .where(and(eq(threads.id, tid), eq(threads.title, "New chat")))
+              .returning({ id: threads.id });
+            if (thread) {
+              await replaceThreadTitleSearchTerms(tx, {
+                userId: ctx.userId,
+                threadId: tid,
+                title,
+              });
+            }
           }
 
           const runId = await insertRun(tx, {
@@ -412,10 +428,19 @@ export const chatRouter = router({
             .orderBy(asc(messages.createdAt))
             .limit(1);
           if (first?.id === message.id) {
-            await tx
+            const title = deriveTitle(trimmed);
+            const [thread] = await tx
               .update(threads)
-              .set({ title: deriveTitle(trimmed) })
-              .where(eq(threads.id, threadId));
+              .set({ title })
+              .where(eq(threads.id, threadId))
+              .returning({ id: threads.id });
+            if (thread) {
+              await replaceThreadTitleSearchTerms(tx, {
+                userId: ctx.userId,
+                threadId,
+                title,
+              });
+            }
           }
 
           const alias =

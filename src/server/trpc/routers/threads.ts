@@ -1,10 +1,20 @@
-import { and, desc, eq, ilike } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { threads } from "../../db/schema";
+import { searchTerms, threads } from "../../db/schema";
 import { newId } from "../../runs-service";
+import {
+  replaceThreadTitleSearchTerms,
+  THREAD_TITLE_SOURCE,
+  tokenizeTitleSearchText,
+} from "../../search/title-index";
 import { publicProcedure, router } from "../trpc";
 
-const toThreadSummary = (t: typeof threads.$inferSelect) => ({
+type ThreadSummaryRow = Pick<
+  typeof threads.$inferSelect,
+  "id" | "title" | "pinned" | "createdAt" | "updatedAt"
+>;
+
+const toThreadSummary = (t: ThreadSummaryRow) => ({
   id: t.id,
   title: t.title,
   pinned: t.pinned,
@@ -34,22 +44,43 @@ export const threadsRouter = router({
       return row ? toThreadSummary(row) : null;
     }),
 
-  /** Title search for the ⌘K palette (SQL ILIKE; tsvector is the upgrade path). */
+  /** Title search for the ⌘K palette. Uses app-managed English terms and
+   * Chinese bigrams in search_terms so standard Railway Postgres is enough. */
   search: publicProcedure
     .input(z.object({ query: z.string().max(200) }))
     .query(async ({ ctx, input }) => {
-      const q = input.query.trim();
-      if (!q) return [];
+      const terms = tokenizeTitleSearchText(input.query);
+      if (terms.length === 0) return [];
+      const matchCount = sql<number>`count(*)::int`;
       const rows = await ctx.db
-        .select()
-        .from(threads)
+        .select({
+          id: threads.id,
+          title: threads.title,
+          pinned: threads.pinned,
+          createdAt: threads.createdAt,
+          updatedAt: threads.updatedAt,
+          matchCount,
+        })
+        .from(searchTerms)
+        .innerJoin(
+          threads,
+          and(eq(threads.id, searchTerms.threadId), eq(threads.userId, ctx.userId)),
+        )
         .where(
           and(
-            eq(threads.userId, ctx.userId),
-            ilike(threads.title, `%${q.replace(/[%_\\]/g, "\\$&")}%`),
+            eq(searchTerms.userId, ctx.userId),
+            eq(searchTerms.sourceKind, THREAD_TITLE_SOURCE),
+            inArray(searchTerms.term, terms),
           ),
         )
-        .orderBy(desc(threads.updatedAt))
+        .groupBy(
+          threads.id,
+          threads.title,
+          threads.pinned,
+          threads.createdAt,
+          threads.updatedAt,
+        )
+        .orderBy(desc(matchCount), desc(threads.updatedAt))
         .limit(20);
       return rows.map(toThreadSummary);
     }),
@@ -59,13 +90,21 @@ export const threadsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
       const id = newId();
-      await ctx.db.insert(threads).values({
-        id,
-        userId: ctx.userId,
-        title: input.title?.trim() || "New chat",
-        pinned: false,
-        createdAt: now,
-        updatedAt: now,
+      const title = input.title?.trim() || "New chat";
+      await ctx.db.transaction(async (tx) => {
+        await tx.insert(threads).values({
+          id,
+          userId: ctx.userId,
+          title,
+          pinned: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+        await replaceThreadTitleSearchTerms(tx, {
+          userId: ctx.userId,
+          threadId: id,
+          title,
+        });
       });
       return id;
     }),
@@ -73,13 +112,23 @@ export const threadsRouter = router({
   rename: publicProcedure
     .input(z.object({ threadId: z.uuid(), title: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db
-        .update(threads)
-        .set({
-          title: input.title.trim().slice(0, 200) || "Untitled",
-          updatedAt: new Date(),
-        })
-        .where(and(eq(threads.id, input.threadId), eq(threads.userId, ctx.userId)));
+      const title = input.title.trim().slice(0, 200) || "Untitled";
+      await ctx.db.transaction(async (tx) => {
+        const [thread] = await tx
+          .update(threads)
+          .set({
+            title,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(threads.id, input.threadId), eq(threads.userId, ctx.userId)))
+          .returning({ id: threads.id });
+        if (!thread) return;
+        await replaceThreadTitleSearchTerms(tx, {
+          userId: ctx.userId,
+          threadId: input.threadId,
+          title,
+        });
+      });
     }),
 
   setPinned: publicProcedure

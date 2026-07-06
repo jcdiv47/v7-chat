@@ -5,6 +5,8 @@
  * re-imports don't double-boot.
  */
 import { runMigrations } from "./db/migrate";
+import { getDb } from "./db/client";
+import { backfillThreadTitleSearchTerms } from "./search/title-index";
 import { startSweeper, drainAndExit } from "./sweeper";
 
 const globalStore = globalThis as unknown as { __v7Booted?: boolean };
@@ -14,10 +16,13 @@ export async function bootServer(): Promise<void> {
   globalStore.__v7Booted = true;
 
   await runMigrations();
+  const indexedTitles = await backfillThreadTitleSearchTerms(getDb());
   startSweeper();
 
   process.once("SIGTERM", () => void drainAndExit("SIGTERM"));
   process.once("SIGINT", () => void drainAndExit("SIGINT"));
 
-  console.log("[boot] migrations applied, sweeper started");
+  console.log(
+    `[boot] migrations applied, indexed ${indexedTitles} missing thread titles, sweeper started`,
+  );
 }
