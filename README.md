@@ -3,13 +3,16 @@
 An agentic business data analysis app. Ask natural-language questions about a
 small dataset of **cities, malls, and stores**; the agent inspects the schema,
 writes and runs **read-only SQL**, and answers with tables, charts, and saved
-artifacts — in a Claude-like chat UI with live, resumable streaming.
+artifacts — in a Claude-like chat UI with live, resumable streaming. Built to the specs in [`docs/specs/`](./docs/specs/).
 
-Built to the specs in [`docs/specs/`](./docs/specs/). Stack: **Next.js** (one
-long-lived service: UI, tRPC API, in-process agent worker) · **Postgres +
-Drizzle** (state, run lifecycle, persisted stream) · **tRPC v11** with SSE
-subscriptions · **AI SDK v7 `ToolLoopAgent`** · **OpenRouter** · an intermediate
-**Postgres** database.
+Stack:
+
+- **Next.js** (one long-lived service: UI, tRPC API, in-process agent worker)
+- **Postgres + Drizzle** (state, run lifecycle, persisted stream)
+- **tRPC v11** with SSE subscriptions
+- **AI SDK v7 `ToolLoopAgent`**
+- **OpenRouter**
+- an intermediate **Postgres** database.
 
 ---
 
