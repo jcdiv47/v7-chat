@@ -223,6 +223,7 @@ function ThreadRow({
       {thread.running && (
         <Loader2
           className="mr-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground"
+          role="img"
           aria-label="Running"
         />
       )}
