@@ -19,6 +19,7 @@ import { buildInstructions } from "../src/lib/agent/instructions";
 import { createAgentTools } from "../src/lib/agent/tools";
 import { buildModelMessages, type CompactTurn } from "../src/lib/agent/history";
 import { toolLabel, type RenderToolPart } from "../src/lib/agent/stream-parts";
+import { getAppVersion } from "../src/lib/app-version";
 import { createDiskSkillSource } from "../src/lib/skills/disk";
 import { createNodeExecutor } from "../src/lib/sql/pglite-executor";
 import {
@@ -339,6 +340,7 @@ async function main() {
       threadId: "tui",
       userId: "tui",
       modelAlias: alias,
+      appVersion: getAppVersion(),
       activeSkillNames: skills.list().map((s) => s.name),
       loadedSkillNames: [],
       skillsVersion: skills.version,

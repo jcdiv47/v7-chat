@@ -160,6 +160,7 @@ export type AnalysisRuntimeContext = {
   userId: string;
   orgId?: string;
   modelAlias: ModelAlias;
+  appVersion: string;
   activeSkillNames: string[];
   loadedSkillNames: string[];
   skillsVersion: string;
