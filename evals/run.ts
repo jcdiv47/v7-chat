@@ -17,6 +17,7 @@ import { createAgentTools } from "../src/lib/agent/tools";
 import { createDiskSkillSource } from "../src/lib/skills/disk";
 import { createNodeExecutor } from "../src/lib/sql/pglite-executor";
 import { getModel, hasRealModel, openrouterProviderOptions, resolveModelDef } from "../src/lib/models/registry";
+import { getAppVersion } from "../src/lib/app-version";
 import type { AgentToolDeps, AnalysisRuntimeContext } from "../src/lib/agent/types";
 import type { PostgresExecutor } from "../src/lib/sql/executor";
 
@@ -139,7 +140,17 @@ async function main() {
     const deps = evalDeps(executor, skills, cap);
     const tools = createAgentTools(deps);
     const textParts: string[] = [];
-    const rc: AnalysisRuntimeContext = { requestId: "eval", runId: "eval", threadId: "eval", userId: "eval", modelAlias: "analyst", activeSkillNames: skills.list().map((s) => s.name), loadedSkillNames: [], skillsVersion: skills.version };
+    const rc: AnalysisRuntimeContext = {
+      requestId: "eval",
+      runId: "eval",
+      threadId: "eval",
+      userId: "eval",
+      modelAlias: "analyst",
+      appVersion: getAppVersion(),
+      activeSkillNames: skills.list().map((s) => s.name),
+      loadedSkillNames: [],
+      skillsVersion: skills.version,
+    };
     const onChunk = (c: UIMessageChunk) => {
       if (c.type === "text-delta") textParts.push(c.delta);
       if (c.type === "tool-input-available" && c.toolName === "askUser") cap.asked = true;

@@ -11,6 +11,7 @@ import { registerTelemetry } from "ai";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { LangfuseVercelAiSdkIntegration } from "@langfuse/vercel-ai-sdk";
 import { NodeSDK } from "@opentelemetry/sdk-node";
+import { getLangfuseRelease } from "../lib/app-version";
 import { hasRealModel } from "../lib/models/registry";
 
 const globalStore = globalThis as unknown as {
@@ -51,6 +52,7 @@ export function initTelemetry(): boolean {
     // Passed explicitly: the SDK's own auto-read variable is named
     // LANGFUSE_TRACING_ENVIRONMENT, which we don't rely on.
     environment: env("LANGFUSE_ENVIRONMENT"),
+    release: getLangfuseRelease(),
   });
   new NodeSDK({ spanProcessors: [processor] }).start();
   registerTelemetry(new LangfuseVercelAiSdkIntegration());

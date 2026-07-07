@@ -256,6 +256,7 @@ export async function runAnalysisAgent(
         threadId: true,
         userId: true,
         modelAlias: true,
+        appVersion: true,
         skillsVersion: true,
       },
     },

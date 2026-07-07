@@ -34,6 +34,7 @@ import {
   resolveModelDef,
 } from "../lib/models/registry";
 import type { AnalysisRuntimeContext, ModelAlias } from "../lib/agent/types";
+import { getAppVersion } from "../lib/app-version";
 import { MAX_STEPS, RUN_TIMEOUTS } from "./constants";
 import { createChunkWriter } from "./chunk-writer";
 import { getDb } from "./db/client";
@@ -175,12 +176,14 @@ async function driveRun(runId: string, abortSignal: AbortSignal): Promise<void> 
       const messages = buildModelMessages(turns);
       const skills = bundledSkillSource.list();
       const def = resolveModelDef(alias);
+      const appVersion = getAppVersion();
       const runtimeContext: AnalysisRuntimeContext = {
         requestId: runId,
         runId,
         threadId: run.threadId,
         userId: run.userId,
         modelAlias: alias,
+        appVersion,
         activeSkillNames: run.activeSkillNames,
         loadedSkillNames: [],
         skillsVersion: run.skillsVersion,
@@ -197,7 +200,9 @@ async function driveRun(runId: string, abortSignal: AbortSignal): Promise<void> 
           sessionId: run.threadId,
           userId: run.userId,
           tags: [alias],
+          version: appVersion,
           metadata: {
+            appVersion,
             runId,
             threadId: run.threadId,
             modelAlias: alias,
