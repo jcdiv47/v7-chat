@@ -1,6 +1,6 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, exists, sql } from "drizzle-orm";
 import { z } from "zod";
-import { searchTerms, threads } from "../../db/schema";
+import { runs, searchTerms, threads } from "../../db/schema";
 import { newId } from "../../runs-service";
 import {
   buildTitleTermMatch,
@@ -14,25 +14,45 @@ type ThreadSummaryRow = Pick<
   "id" | "title" | "pinned" | "createdAt" | "updatedAt"
 >;
 
-const toThreadSummary = (t: ThreadSummaryRow) => ({
+const toThreadSummary = (t: ThreadSummaryRow, running = false) => ({
   id: t.id,
   title: t.title,
   pinned: t.pinned,
   createdAt: t.createdAt.getTime(),
   updatedAt: t.updatedAt.getTime(),
+  /** Whether this thread currently has a live run — drives the sidebar
+   * spinner. At most one per thread (see the one_live_run_per_thread index). */
+  running,
 });
 
 export const threadsRouter = router({
   /** All threads for the current user, newest first. The client splits pinned
    * vs. recents and buckets recents by recency. */
   list: publicProcedure.query(async ({ ctx }) => {
+    // Correlated EXISTS via the query builder so the column refs are
+    // table-qualified (a raw sql`` template renders them unqualified, which
+    // silently self-joins runs and always reads false). Cheap thanks to the
+    // one_live_run_per_thread partial index.
+    const running = exists(
+      ctx.db
+        .select({ one: sql`1` })
+        .from(runs)
+        .where(and(eq(runs.threadId, threads.id), eq(runs.status, "running"))),
+    );
     const rows = await ctx.db
-      .select()
+      .select({
+        id: threads.id,
+        title: threads.title,
+        pinned: threads.pinned,
+        createdAt: threads.createdAt,
+        updatedAt: threads.updatedAt,
+        running,
+      })
       .from(threads)
       .where(eq(threads.userId, ctx.userId))
       .orderBy(desc(threads.updatedAt))
       .limit(200);
-    return rows.map(toThreadSummary);
+    return rows.map((r) => toThreadSummary(r, Boolean(r.running)));
   }),
 
   get: publicProcedure
@@ -83,7 +103,7 @@ export const threadsRouter = router({
         )
         .orderBy(desc(matchCount), desc(threads.updatedAt))
         .limit(20);
-      return rows.map(toThreadSummary);
+      return rows.map((r) => toThreadSummary(r));
     }),
 
   create: publicProcedure
