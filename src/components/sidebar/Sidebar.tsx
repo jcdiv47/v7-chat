@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   BarChart3,
   FolderClosed,
+  Loader2,
   MessageSquare,
   MoreHorizontal,
   PanelLeftClose,
@@ -44,7 +45,15 @@ export function Sidebar({
   onOpenArtifacts: () => void;
   onCollapse: () => void;
 }) {
-  const threads = trpc.threads.list.useQuery().data ?? [];
+  // Poll while any thread has a live run so the spinner clears once its run
+  // finishes; idle otherwise. Run start/finish on the active thread also
+  // invalidates this query (Conversation.refreshThread), which kicks off the
+  // poll for threads started here.
+  const threads =
+    trpc.threads.list.useQuery(undefined, {
+      refetchInterval: (query) =>
+        query.state.data?.some((t) => t.running) ? 2000 : false,
+    }).data ?? [];
   const pinned = threads.filter((t) => t.pinned);
   const recents = threads.filter((t) => !t.pinned);
 
@@ -211,6 +220,13 @@ function ThreadRow({
       >
         {thread.title}
       </button>
+      {thread.running && (
+        <Loader2
+          className="mr-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground"
+          role="img"
+          aria-label="Running"
+        />
+      )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
