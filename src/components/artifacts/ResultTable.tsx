@@ -3,35 +3,70 @@
 import { useState } from "react";
 import { ArrowDownUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type Column = { name: string; type?: string };
 type Row = Record<string, unknown>;
 
-/** Result table with lightweight click-to-sort and horizontal scroll. */
+/** Rows-per-page choices. The result set is already row-capped upstream
+ * (SQL_MAX_ROWS), so this only bounds how much lands in the DOM at once. */
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_PAGE_SIZE = 50;
+
+/** Result table with click-to-sort, horizontal scroll, and client-side
+ * pagination over the (already row-capped) result set. */
 export function ResultTable({
   columns,
   rows,
   rowCount,
   truncated,
+  pageSize = DEFAULT_PAGE_SIZE,
 }: {
   columns: Column[];
   rows: Row[];
   rowCount?: number;
   truncated?: boolean;
+  pageSize?: number;
 }) {
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 } | null>(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(pageSize);
 
   const sorted = sort
     ? [...rows].sort((a, b) => compare(a[sort.col], b[sort.col]) * sort.dir)
     : rows;
 
-  const toggleSort = (col: string) =>
+  const toggleSort = (col: string) => {
+    setPage(0);
     setSort((s) =>
       s?.col === col ? { col, dir: (s.dir === 1 ? -1 : 1) as 1 | -1 } : { col, dir: 1 },
     );
+  };
 
   if (columns.length === 0)
     return <p className="text-sm text-muted-foreground">No columns.</p>;
+
+  // Clamp the page rather than storing it — keeps state valid when `rows` or
+  // the page size changes underneath it.
+  const pageCount = Math.max(1, Math.ceil(sorted.length / rowsPerPage));
+  const current = Math.min(page, pageCount - 1);
+  const start = current * rowsPerPage;
+  const pageRows = sorted.slice(start, start + rowsPerPage);
+  const showPagination = sorted.length > PAGE_SIZE_OPTIONS[0];
 
   return (
     <div>
@@ -63,8 +98,8 @@ export function ResultTable({
             </tr>
           </thead>
           <tbody>
-            {sorted.map((row, i) => (
-              <tr key={i} className="border-b border-border/60 last:border-0 hover:bg-accent/30">
+            {pageRows.map((row, i) => (
+              <tr key={start + i} className="border-b border-border/60 last:border-0 hover:bg-accent/30">
                 {columns.map((c) => (
                   <td key={c.name} className="whitespace-nowrap px-3 py-1.5 font-mono text-[13px]">
                     {formatCell(row[c.name])}
@@ -82,6 +117,54 @@ export function ResultTable({
           </tbody>
         </table>
       </div>
+      {showPagination && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="whitespace-nowrap">Rows per page</span>
+            <Select
+              value={String(rowsPerPage)}
+              onValueChange={(v) => {
+                setRowsPerPage(Number(v));
+                setPage(0);
+              }}
+            >
+              <SelectTrigger className="w-18">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="start">
+                <SelectGroup>
+                  {PAGE_SIZE_OPTIONS.map((n) => (
+                    <SelectItem key={n} value={String(n)}>
+                      {n}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          <Pagination className="mx-0 w-auto">
+            <PaginationContent>
+              <PaginationItem>
+                <span className="whitespace-nowrap px-1 text-sm tabular-nums text-muted-foreground">
+                  {start + 1}–{Math.min(start + rowsPerPage, sorted.length)} of {sorted.length}
+                </span>
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationPrevious
+                  onClick={() => setPage(current - 1)}
+                  disabled={current === 0}
+                />
+              </PaginationItem>
+              <PaginationItem>
+                <PaginationNext
+                  onClick={() => setPage(current + 1)}
+                  disabled={current >= pageCount - 1}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
     </div>
   );
 }
