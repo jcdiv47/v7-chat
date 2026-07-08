@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ArrowDown, Copy, Pencil, RotateCcw, X } from "lucide-react";
-import { trpc } from "@/lib/trpc";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, Copy, PanelRight, Pencil, RotateCcw, X } from "lucide-react";
+import { trpc, type ArtifactSummaryItem } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import type { RenderPart } from "@/lib/agent/stream-parts";
 import type { QuestionAnswer } from "@/lib/agent/types";
@@ -23,9 +23,15 @@ function useNow(intervalMs: number): number {
 export function Conversation({
   threadId,
   onThreadCreated,
+  onOpenArtifacts,
+  selectedRunId,
 }: {
   threadId: string | undefined;
   onThreadCreated: (id: string) => void;
+  /** Open the artifact panel for a specific assistant response's run. */
+  onOpenArtifacts: (runId: string) => void;
+  /** The run currently open in the artifact panel, for the selected state. */
+  selectedRunId: string | null;
 }) {
   const utils = trpc.useUtils();
   const { data: messages } = trpc.messages.list.useQuery(
@@ -42,6 +48,22 @@ export function Conversation({
         query.state.data?.status === "running" ? 2000 : false,
     },
   );
+  // One lightweight summary query per thread powers the per-response artifact
+  // affordances (no full payloads). Poll while a run is live so a running
+  // latest run's badge counts update as artifacts are saved.
+  const { data: artifactSummary } = trpc.artifacts.summaryForThread.useQuery(
+    { threadId: threadId ?? "" },
+    {
+      enabled: Boolean(threadId),
+      refetchInterval: () =>
+        latestRun?.status === "running" ? 3000 : false,
+    },
+  );
+  const summaryByRun = useMemo(() => {
+    const map = new Map<string, ArtifactSummaryItem>();
+    for (const s of artifactSummary ?? []) map.set(s.runId, s);
+    return map;
+  }, [artifactSummary]);
   const sendMessage = trpc.chat.send.useMutation();
   const retryLast = trpc.chat.retry.useMutation();
   const editAndRerun = trpc.chat.editAndRerun.useMutation();
@@ -53,6 +75,8 @@ export function Conversation({
     void utils.runs.latestForThread.invalidate();
     void utils.messages.list.invalidate();
     void utils.threads.list.invalidate();
+    // A finished run may have saved new artifacts; refresh the badge counts.
+    void utils.artifacts.summaryForThread.invalidate();
   };
 
   const [modelAlias, setModelAlias] = useState<ModelAlias>("analyst");
@@ -241,6 +265,11 @@ export function Conversation({
                   durationMs={m.durationMs ?? undefined}
                   failed={m.status === "failed"}
                   text={m.text}
+                  runId={m.runId}
+                  status={m.status}
+                  artifactSummary={m.runId ? summaryByRun.get(m.runId) : undefined}
+                  artifactsOpen={m.runId != null && m.runId === selectedRunId}
+                  onOpenArtifacts={onOpenArtifacts}
                   canAnswerQuestion={
                     !running && m.id === messages[messages.length - 1]?.id
                   }
@@ -442,6 +471,11 @@ function AssistantMessage({
   durationMs,
   failed,
   text,
+  runId,
+  status,
+  artifactSummary,
+  artifactsOpen,
+  onOpenArtifacts,
   canAnswerQuestion,
   onAnswerQuestion,
 }: {
@@ -449,6 +483,11 @@ function AssistantMessage({
   durationMs?: number;
   failed?: boolean;
   text: string;
+  runId?: string | null;
+  status?: "complete" | "failed" | "cancelled" | null;
+  artifactSummary?: ArtifactSummaryItem;
+  artifactsOpen?: boolean;
+  onOpenArtifacts?: (runId: string) => void;
   canAnswerQuestion?: boolean;
   onAnswerQuestion?: (
     toolCallId: string,
@@ -456,6 +495,14 @@ function AssistantMessage({
   ) => Promise<void>;
 }) {
   const { copied, copy } = useCopy(text);
+  // Show the artifact affordance when the response has a run and either produced
+  // artifacts or is a failed/cancelled turn worth inspecting (SQL/errors/run
+  // metadata). A plain answer with no artifacts hides the control.
+  const total = artifactSummary?.total ?? 0;
+  const showArtifacts =
+    runId != null &&
+    onOpenArtifacts != null &&
+    (total > 0 || status === "failed" || status === "cancelled");
   return (
     <div className="group mb-5">
       <AssistantTurn
@@ -466,10 +513,37 @@ function AssistantMessage({
         canAnswerQuestion={canAnswerQuestion}
         onAnswerQuestion={onAnswerQuestion}
       />
-      <div className="mt-1.5 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+      <div
+        className={cn(
+          "mt-1.5 flex items-center gap-1 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100",
+          // Keep the row visible when this response's panel is open, so its
+          // selected state stays legible without hovering.
+          artifactsOpen ? "opacity-100" : "opacity-0",
+        )}
+      >
         <ActionButton title={copied ? "Copied" : "Copy"} onClick={copy}>
           <Copy className="size-3.5" />
         </ActionButton>
+        {showArtifacts && (
+          <button
+            title="View analysis"
+            aria-label="View analysis"
+            aria-pressed={artifactsOpen}
+            onClick={() => onOpenArtifacts(runId)}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-accent hover:text-foreground",
+              artifactsOpen
+                ? "bg-accent text-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            <PanelRight className="size-3.5" />
+            <span>Analysis</span>
+            {total > 0 && (
+              <span className="text-muted-foreground/70">{total}</span>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );

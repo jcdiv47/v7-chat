@@ -14,7 +14,13 @@ export function ChatApp({ threadId }: { threadId?: string }) {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [artifactRunId, setArtifactRunId] = useState<string | null>(null);
+  // The artifact panel is run-scoped. Selection is one of:
+  //   null       → panel closed
+  //   "latest"   → the thread's latest run (the default/global target)
+  //   <runId>    → an explicit historical assistant response's run
+  // "latest" resolves to runs.latestForThread at render time so the default
+  // panel tracks the newest run. RunIds are UUIDs, never the "latest" sentinel.
+  const [artifactSel, setArtifactSel] = useState<"latest" | string | null>(null);
 
   const { data: thread } = trpc.threads.get.useQuery(
     { threadId: threadId ?? "" },
@@ -25,8 +31,11 @@ export function ChatApp({ threadId }: { threadId?: string }) {
     { enabled: Boolean(threadId) },
   );
 
+  const selectedRunId =
+    artifactSel === "latest" ? (latestRun?.id ?? null) : artifactSel;
+
   // Reset the artifact panel when switching threads.
-  useEffect(() => setArtifactRunId(null), [threadId]);
+  useEffect(() => setArtifactSel(null), [threadId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -47,9 +56,10 @@ export function ChatApp({ threadId }: { threadId?: string }) {
     router.push("/");
     if (window.innerWidth < 768) setSidebarOpen(false);
   };
-  const openThreadArtifacts = () => {
-    if (latestRun) setArtifactRunId(latestRun.id);
-  };
+  // Global/sidebar/top-bar entry point: always target the latest run. If a
+  // historical run is currently open, this switches the panel back to latest.
+  const openLatestArtifacts = () => setArtifactSel("latest");
+  const closeArtifacts = () => setArtifactSel(null);
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">
@@ -65,7 +75,7 @@ export function ChatApp({ threadId }: { threadId?: string }) {
               onNavigate={navigate}
               onNewChat={newChat}
               onOpenSearch={() => setSearchOpen(true)}
-              onOpenArtifacts={openThreadArtifacts}
+              onOpenArtifacts={openLatestArtifacts}
               onCollapse={() => setSidebarOpen(false)}
             />
           </div>
@@ -100,14 +110,12 @@ export function ChatApp({ threadId }: { threadId?: string }) {
           </div>
           {latestRun && (
             <button
-              onClick={() =>
-                artifactRunId ? setArtifactRunId(null) : openThreadArtifacts()
-              }
+              onClick={() => (selectedRunId ? closeArtifacts() : openLatestArtifacts())}
               title="Toggle artifact panel"
               aria-label="Toggle artifact panel"
               className={cn(
                 "rounded-md p-1.5 hover:bg-accent hover:text-foreground",
-                artifactRunId ? "text-foreground" : "text-muted-foreground",
+                selectedRunId ? "text-foreground" : "text-muted-foreground",
               )}
             >
               <PanelRight className="size-4" />
@@ -116,20 +124,22 @@ export function ChatApp({ threadId }: { threadId?: string }) {
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <Conversation threadId={threadId} onThreadCreated={navigate} />
+          <Conversation
+            threadId={threadId}
+            onThreadCreated={navigate}
+            onOpenArtifacts={(runId) => setArtifactSel(runId)}
+            selectedRunId={selectedRunId}
+          />
 
-          {artifactRunId && (
+          {selectedRunId && (
             <>
               <div className="hidden w-[420px] shrink-0 border-l border-border lg:block">
-                <ArtifactPanel runId={artifactRunId} onClose={() => setArtifactRunId(null)} />
+                <ArtifactPanel runId={selectedRunId} onClose={closeArtifacts} />
               </div>
               <div className="fixed inset-0 z-40 lg:hidden">
-                <div
-                  className="absolute inset-0 bg-black/40"
-                  onClick={() => setArtifactRunId(null)}
-                />
+                <div className="absolute inset-0 bg-black/40" onClick={closeArtifacts} />
                 <div className="absolute right-0 top-0 h-full w-[92%] max-w-md border-l border-border shadow-xl">
-                  <ArtifactPanel runId={artifactRunId} onClose={() => setArtifactRunId(null)} />
+                  <ArtifactPanel runId={selectedRunId} onClose={closeArtifacts} />
                 </div>
               </div>
             </>
