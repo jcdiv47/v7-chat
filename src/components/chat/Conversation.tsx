@@ -24,12 +24,16 @@ export function Conversation({
   threadId,
   onThreadCreated,
   onOpenArtifacts,
+  onCloseArtifacts,
   selectedRunId,
 }: {
   threadId: string | undefined;
   onThreadCreated: (id: string) => void;
   /** Open the artifact panel for a specific assistant response's run. */
   onOpenArtifacts: (runId: string) => void;
+  /** Close the artifact panel (the response button toggles closed when its
+   * own run is the one already open). */
+  onCloseArtifacts: () => void;
   /** The run currently open in the artifact panel, for the selected state. */
   selectedRunId: string | null;
 }) {
@@ -273,6 +277,7 @@ export function Conversation({
                   artifactSummary={m.runId ? summaryByRun.get(m.runId) : undefined}
                   artifactsOpen={m.runId != null && m.runId === selectedRunId}
                   onOpenArtifacts={onOpenArtifacts}
+                  onCloseArtifacts={onCloseArtifacts}
                   canAnswerQuestion={
                     !running && m.id === messages[messages.length - 1]?.id
                   }
@@ -479,6 +484,7 @@ function AssistantMessage({
   artifactSummary,
   artifactsOpen,
   onOpenArtifacts,
+  onCloseArtifacts,
   canAnswerQuestion,
   onAnswerQuestion,
 }: {
@@ -491,6 +497,7 @@ function AssistantMessage({
   artifactSummary?: ArtifactSummaryItem;
   artifactsOpen?: boolean;
   onOpenArtifacts?: (runId: string) => void;
+  onCloseArtifacts?: () => void;
   canAnswerQuestion?: boolean;
   onAnswerQuestion?: (
     toolCallId: string,
@@ -529,10 +536,14 @@ function AssistantMessage({
         </ActionButton>
         {showArtifacts && (
           <button
-            title="View analysis"
-            aria-label="View analysis"
+            title={artifactsOpen ? "Hide analysis" : "View analysis"}
+            aria-label={artifactsOpen ? "Hide analysis" : "View analysis"}
             aria-pressed={artifactsOpen}
-            onClick={() => onOpenArtifacts(runId)}
+            // Honor the aria-pressed toggle contract: pressing the active
+            // button closes the panel rather than reopening the same run.
+            onClick={() =>
+              artifactsOpen ? onCloseArtifacts?.() : onOpenArtifacts(runId)
+            }
             className={cn(
               "inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs transition-colors hover:bg-accent hover:text-foreground",
               artifactsOpen

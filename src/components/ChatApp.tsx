@@ -136,6 +136,7 @@ export function ChatApp({ threadId }: { threadId?: string }) {
             threadId={threadId}
             onThreadCreated={navigate}
             onOpenArtifacts={(runId) => setArtifactSel({ kind: "run", runId })}
+            onCloseArtifacts={closeArtifacts}
             selectedRunId={selectedRunId}
           />
 
