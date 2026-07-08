@@ -31,8 +31,12 @@ Two persistent regions plus an on-demand panel:
 
 - The sidebar is collapsible; collapsing widens the conversation.
 - The artifact panel is closed by default and opens when the user clicks an artifact
-  reference in a message or the `Artifacts` nav item. It slides in over the right edge
-  and can be pinned open on wide screens.
+  affordance on an assistant response, an artifact reference in a message, or the
+  `Artifacts` nav item. It slides in over the right edge and can be pinned open on
+  wide screens.
+- The artifact panel is run-scoped. The `Artifacts` nav item opens the latest run for
+  the current thread by default; a per-response affordance opens the artifacts for that
+  assistant response's corresponding run.
 - On small screens: the sidebar becomes a drawer, and the artifact panel becomes a full
   sheet. The conversation is always primary.
 
@@ -112,7 +116,8 @@ multilingual search, project search, and message-result rows with snippets.
   small type icon and location (e.g. `src/lib/agent/instructions.ts (line 1)`).
 - Streaming assistant text appends live.
 - A scroll-to-bottom affordance appears when the user has scrolled up during streaming.
-- Per-message actions on hover: copy, retry, and (for a run) stop.
+- Per-message actions on hover: copy, artifacts/analysis for assistant responses with
+  an associated run, retry, and (for a run) stop.
 - Retry starts a new run for the same user message and appends the new response; the
   previous assistant response stays in history (no message versioning in V1).
 
@@ -238,14 +243,49 @@ Analysis outputs are first-class but live inside the chat-first design.
 - **Inline in the conversation:** data views the agent chose to present (tables,
   charts, stat callouts) render inline between the work block and the answer; SQL
   and full result previews stay behind tool rows and the artifact panel.
-- **Artifact panel (on-demand):** clicking an artifact reference — or the `Artifacts`
-  nav item — opens the right-side panel. Within a given artifact the panel exposes tabs:
+- **Artifact panel (on-demand):** clicking a response-level artifact/analysis
+  affordance, clicking an artifact reference, or using the `Artifacts` nav item opens
+  the right-side panel. The panel always renders one run at a time. By default the
+  global/sidebar entry point selects the latest run in the thread; response-level
+  controls select the run that produced that assistant message. Within the selected
+  run the panel exposes tabs:
 
   - `Answer`
   - `SQL`
   - `Table`
   - `Chart`
   - `Run Events` (behind a developer/debug toggle in V1)
+
+### Historical Artifact Access
+
+Every persisted assistant message with a `runId` can reopen the artifact panel for
+that run, so earlier answers keep their SQL, tables, charts, findings, errors, run
+metadata, and final answer inspectable after newer runs complete.
+
+Requirements:
+
+- Keep one selected panel run in chat-shell state. Selection is either the thread's
+  latest run (the default/global state) or an explicit historical `runId` chosen from
+  an assistant response.
+- The sidebar/top-bar `Artifacts` action opens the latest run for the current thread.
+  If the user has selected an older run, invoking the global action switches the panel
+  back to the latest run.
+- Each assistant response renders a compact icon button in its hover/focus action row
+  when it has a `runId`. The button opens the panel for that message's run. If a
+  lightweight artifact summary reports zero artifacts, the control may be hidden or
+  renamed to `Analysis`; either way the behavior must be consistent and accessible.
+- The active response's artifact button should have a selected state while its run is
+  open in the panel.
+- Live runs use the same path: opening the latest running run shows artifacts/events as
+  they are produced, with the panel polling while the selected run is still `running`.
+- Do not issue one full artifact query per message. Use a thread-level artifact summary
+  query keyed by `runId`/`messageId` for badges and visibility, and fetch full artifact
+  payloads only for the currently selected panel run.
+- Failed and cancelled runs may still have useful artifacts; their response-level
+  control should remain available when a `runId` exists.
+- Edited-and-rerun conversation history remains authoritative. Artifacts for pruned
+  turns are not surfaced from the current thread UI unless those assistant messages
+  are still present.
 
 ### Inline Data Views
 
@@ -369,6 +409,20 @@ type ArtifactViewModel = {
 };
 ```
 
+Thread-level artifact summary (for assistant-response action badges and visibility):
+
+```ts
+type ArtifactSummaryViewModel = {
+  runId: string;
+  messageId: string | null;
+  total: number;
+  counts: Partial<
+    Record<"sql" | "table" | "view" | "finding" | "error" | "chartSpec", number>
+  >;
+  latestCreatedAt: number;
+};
+```
+
 ## V1 Acceptance Criteria
 
 - The shell matches the reference: sidebar with pinned and recent sessions, a
@@ -385,6 +439,8 @@ type ArtifactViewModel = {
 - User can ask a question and see a streamed answer.
 - User can inspect the SQL used, the tabular results, and a basic chart for
   grouped/ranking questions.
+- User can reopen artifacts for any visible assistant response with a run, not only
+  the latest response.
 - For grouped/ranking questions the agent presents an inline chart on its own,
   rendered between the work block and the answer; the view survives refresh
   mid-stream and reopening the thread later.

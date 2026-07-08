@@ -126,7 +126,7 @@ Deliverables:
 - resumable streaming: cursor-based JSONL replay from `run_chunks`, then live
   tailing from RunBus
 - thinking + tool-call rendering with live → folded lifecycle
-- artifact panel with SQL, table, and chart tabs
+- artifact panel with SQL, table, and chart tabs, opened for the latest run
 - stop and retry controls
 - example prompts / empty state
 
@@ -137,8 +137,66 @@ Acceptance criteria:
 - Refreshing mid-run reattaches to the live stream; the run continues and completes with no duplicated or lost content.
 - User can stop a run mid-stream and retry a message; retry appends a new run.
 - User can browse pinned/recent sessions and open a session via the title search modal.
-- User can inspect SQL and result preview.
+- User can inspect SQL and result preview for the latest run.
 - Basic chart appears for grouped results.
+
+## Phase 6A: Historical Artifact Access
+
+Goal: make artifacts for every visible assistant response inspectable without changing
+the artifact storage model or adding a schema migration. The panel remains run-scoped;
+the chat shell owns which run is selected.
+
+Backend deliverables:
+
+- Add `artifacts.summaryForThread({ threadId })`.
+- Scope the query by the owned thread and `ctx.userId`.
+- Return one summary per run (keyed by `runId` on the client), each carrying:
+  - `runId`
+  - `messageId | null` (the run's associated assistant message)
+  - total artifact count
+  - counts by artifact type (`sql`, `table`, `view`, `finding`, `error`, `chartSpec`)
+  - latest artifact creation time
+- Keep full artifact payloads out of the summary response. `artifacts.listForRun`
+  remains the only query used by the panel for selected-run payloads.
+- Invalidate the summary query when a run finishes, and poll/refetch it while the
+  currently selected live run is producing artifacts.
+
+Frontend deliverables:
+
+- Replace the single nullable `artifactRunId` shell state with a selected artifact
+  target:
+  - `null` for closed
+  - `latest` for the thread's latest run
+  - explicit `runId` for a historical assistant response
+- Resolve `latest` to `runs.latestForThread.id` at render time so the default panel
+  tracks the newest run.
+- Pass `onOpenArtifacts(runId)` and the active selected run into `Conversation`.
+- Fetch `artifacts.summaryForThread` once per thread and build a `runId` keyed map for
+  message action badges/visibility.
+- Add a compact artifact/analysis icon button to each assistant response action row
+  when the message has a `runId`. Use the summary count for the badge or visibility,
+  but allow failed/cancelled runs to open if the product labels the action as
+  `Analysis`.
+- Preserve the existing global/sidebar `Artifacts` behavior as "open latest run"; if
+  a historical run is open, invoking the global action switches back to latest.
+- Keep mobile behavior unchanged: the selected run opens in the same sheet-style
+  artifact panel.
+
+Acceptance criteria:
+
+- Opening `Artifacts` from the sidebar/top bar shows the latest run for the current
+  thread.
+- Opening the artifact button on an older assistant response shows that response's SQL,
+  tables, charts/views, errors/findings, answer, and run metadata.
+- Switching between response buttons updates the existing panel instead of opening
+  multiple panels.
+- The active response's artifact control has a visible selected state.
+- No full artifact payloads are fetched for every message in the conversation.
+- A running latest run can be opened and continues to refresh artifacts/events as they
+  are saved.
+- Failed or cancelled assistant turns with saved artifacts remain inspectable.
+- Edit-and-rerun pruned turns do not appear as historical artifact targets in the
+  current conversation.
 
 ## Phase 7: Evals And Hardening
 

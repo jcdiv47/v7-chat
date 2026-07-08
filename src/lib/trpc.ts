@@ -12,3 +12,5 @@ export type ThreadSummary = RouterOutputs["threads"]["list"][number];
 export type MessageItem = RouterOutputs["messages"]["list"][number];
 export type RunSummary = NonNullable<RouterOutputs["runs"]["latestForThread"]>;
 export type ArtifactItem = RouterOutputs["artifacts"]["listForRun"][number];
+export type ArtifactSummaryItem =
+  RouterOutputs["artifacts"]["summaryForThread"][number];

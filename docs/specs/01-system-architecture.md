@@ -66,6 +66,8 @@ flowchart LR
 
 - Claude-like chat shell: collapsible sidebar (pinned + recent sessions), conversation
   column, global search modal, and on-demand artifact panel.
+- Artifact panel selection is run-scoped: global artifact navigation opens the latest
+  run, while each assistant response can open the artifacts for its own run.
 - Stream reasoning, tool calls, and intermediate text live in a single open work
   block per turn, which collapses into a `Worked for Ns` summary when the final
   response starts streaming.
@@ -142,7 +144,7 @@ The canonical schema is `src/server/db/schema.ts`.
 | `messages` | User and assistant turns. Assistant rows store final text, full render parts, compact tool-line summaries for history, run linkage, status, and duration. |
 | `runs` | Agent execution lifecycle: status, stop request, heartbeat, model and skill metadata, message links, retry anchor, timing, error, finish reason, counters, and usage. A partial unique index (`one_live_run_per_thread`) allows only one `running` run per thread. |
 | `run_events` | Ordered structured events for debugging and the developer run-events panel. |
-| `artifacts` | SQL, table, view, finding, and error artifacts tied to runs and optionally messages. `chartSpec` remains in the type union for legacy rows; new charts use `view`. |
+| `artifacts` | SQL, table, view, finding, and error artifacts tied to runs and optionally messages. `chartSpec` remains in the type union for legacy rows; new charts use `view`. Full payloads are fetched only for the selected panel run; thread-level UI badges use lightweight summaries. |
 | `run_chunks` | Persisted live stream replay. Each row is one JSONL-encoded UI message chunk line keyed by `(run_id, seq)`. The run is the stream; clients subscribe by `runId` and resume by sequence cursor. |
 | `search_terms` | App-managed title-search index. V1 stores one row per normalized title token/bigram, scoped by `user_id`, `thread_id`, `source_kind` (`thread_title`), `source_id` (the thread id for title rows), and `term`. The table is maintained by thread create/rename/delete code instead of adding search columns to `threads`. |
 
@@ -188,13 +190,20 @@ The public API is tRPC. Router procedures:
 | `threads` | `list`, `get`, `search`, `create`, `rename`, `setPinned`, `remove` |
 | `messages` | `list`, `get` |
 | `runs` | `latestForThread`, `get`, `stop`, `stream` |
-| `artifacts` | `listForRun`, `get` |
+| `artifacts` | `listForRun`, `summaryForThread`, `get` |
 | `events` | `listForRun` |
 
 `runs.stream` is the only push channel in V1. Sidebar and artifact-panel data
 use normal query invalidation after mutations. Title search uses the separate
 app-managed `search_terms` table rather than SQL `ILIKE`, `tsvector`, or
 database extension-backed search.
+
+`artifacts.summaryForThread` returns lightweight counts for assistant-message
+artifact affordances. It is scoped by `threadId` and owned `ctx.userId`, and returns
+one row per `runId` (carrying its nullable `messageId`) with counts by type plus the
+latest creation time. It must not return full artifact payloads, because table
+artifacts can contain large result previews. `artifacts.listForRun` remains the
+payload-bearing query for the single run currently open in the artifact panel.
 
 ## Runtime Flows
 
