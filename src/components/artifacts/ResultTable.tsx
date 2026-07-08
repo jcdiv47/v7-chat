@@ -44,7 +44,9 @@ export function ResultTable({
 }) {
   const [sort, setSort] = useState<{ col: string; dir: 1 | -1 } | null>(null);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(pageSize);
+  const [rowsPerPage, setRowsPerPage] = useState(
+    PAGE_SIZE_OPTIONS.includes(pageSize) ? pageSize : DEFAULT_PAGE_SIZE,
+  );
 
   const sorted = sort
     ? [...rows].sort((a, b) => compare(a[sort.col], b[sort.col]) * sort.dir)
@@ -66,7 +68,7 @@ export function ResultTable({
   const current = Math.min(page, pageCount - 1);
   const start = current * rowsPerPage;
   const pageRows = sorted.slice(start, start + rowsPerPage);
-  const showPagination = sorted.length > PAGE_SIZE_OPTIONS[0];
+  const showPagination = sorted.length > rowsPerPage;
 
   return (
     <div>
