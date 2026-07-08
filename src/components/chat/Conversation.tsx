@@ -50,13 +50,16 @@ export function Conversation({
   );
   // One lightweight summary query per thread powers the per-response artifact
   // affordances (no full payloads). Poll while a run is live so a running
-  // latest run's badge counts update as artifacts are saved.
+  // latest run's badge counts update as artifacts are saved. The summary
+  // payload carries no run status, so liveness comes from the sibling
+  // latestForThread query; gate on loaded data so polling starts after first
+  // fetch.
   const { data: artifactSummary } = trpc.artifacts.summaryForThread.useQuery(
     { threadId: threadId ?? "" },
     {
       enabled: Boolean(threadId),
-      refetchInterval: () =>
-        latestRun?.status === "running" ? 3000 : false,
+      refetchInterval: (query) =>
+        query.state.data != null && latestRun?.status === "running" ? 3000 : false,
     },
   );
   const summaryByRun = useMemo(() => {

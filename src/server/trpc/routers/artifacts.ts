@@ -5,7 +5,13 @@ import { publicProcedure, router } from "../trpc";
 
 /** One entry per run: lightweight counts for the assistant-response artifact
  * affordances. No payloads — table artifacts can carry large result previews,
- * so those are fetched only for the run open in the panel (`listForRun`). */
+ * so those are fetched only for the run open in the panel (`listForRun`).
+ *
+ * `messageId` is part of the summary contract (docs/specs/05-frontend-ux.md →
+ * ArtifactSummaryViewModel) for message-keyed consumers/visibility. The current
+ * panel is opened by `runId` and keys its map by `runId`, so it does not read
+ * `messageId` yet; it is carried for that documented shape and future
+ * message-anchored affordances (e.g. scroll-to-message). */
 type ArtifactSummary = {
   runId: string;
   messageId: string | null;

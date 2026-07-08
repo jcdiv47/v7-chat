@@ -15,12 +15,16 @@ export function ChatApp({ threadId }: { threadId?: string }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
   // The artifact panel is run-scoped. Selection is one of:
-  //   null       → panel closed
-  //   "latest"   → the thread's latest run (the default/global target)
-  //   <runId>    → an explicit historical assistant response's run
-  // "latest" resolves to runs.latestForThread at render time so the default
-  // panel tracks the newest run. RunIds are UUIDs, never the "latest" sentinel.
-  const [artifactSel, setArtifactSel] = useState<"latest" | string | null>(null);
+  //   null                          → panel closed
+  //   { kind: "latest" }            → the thread's latest run (default/global)
+  //   { kind: "run"; runId }        → an explicit historical assistant response
+  // A discriminated union (not "latest" | string, which collapses to string)
+  // keeps the sentinel distinct from a runId at the type level. "latest"
+  // resolves to runs.latestForThread at render time so the default panel
+  // tracks the newest run.
+  const [artifactSel, setArtifactSel] = useState<
+    null | { kind: "latest" } | { kind: "run"; runId: string }
+  >(null);
 
   const { data: thread } = trpc.threads.get.useQuery(
     { threadId: threadId ?? "" },
@@ -32,7 +36,11 @@ export function ChatApp({ threadId }: { threadId?: string }) {
   );
 
   const selectedRunId =
-    artifactSel === "latest" ? (latestRun?.id ?? null) : artifactSel;
+    artifactSel == null
+      ? null
+      : artifactSel.kind === "latest"
+        ? (latestRun?.id ?? null)
+        : artifactSel.runId;
 
   // Reset the artifact panel when switching threads.
   useEffect(() => setArtifactSel(null), [threadId]);
@@ -58,7 +66,7 @@ export function ChatApp({ threadId }: { threadId?: string }) {
   };
   // Global/sidebar/top-bar entry point: always target the latest run. If a
   // historical run is currently open, this switches the panel back to latest.
-  const openLatestArtifacts = () => setArtifactSel("latest");
+  const openLatestArtifacts = () => setArtifactSel({ kind: "latest" });
   const closeArtifacts = () => setArtifactSel(null);
 
   return (
@@ -127,7 +135,7 @@ export function ChatApp({ threadId }: { threadId?: string }) {
           <Conversation
             threadId={threadId}
             onThreadCreated={navigate}
-            onOpenArtifacts={(runId) => setArtifactSel(runId)}
+            onOpenArtifacts={(runId) => setArtifactSel({ kind: "run", runId })}
             selectedRunId={selectedRunId}
           />
 
