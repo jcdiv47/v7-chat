@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 // Set the theme class before paint to avoid a flash of the wrong theme.
-const themeScript = `(function(){try{var t=localStorage.getItem("theme");var d=t?t==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;document.documentElement.classList.toggle("dark",d);}catch(e){}})();`;
+const themeScript = `(function(){try{var t=localStorage.getItem("theme");var d=t?t==="dark":false;document.documentElement.classList.toggle("dark",d);}catch(e){}})();`;
 
 export default function RootLayout({
   children,
