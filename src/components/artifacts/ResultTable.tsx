@@ -25,7 +25,7 @@ type Row = Record<string, unknown>;
 /** Rows-per-page choices. The result set is already row-capped upstream
  * (SQL_MAX_ROWS), so this only bounds how much lands in the DOM at once. */
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
-const DEFAULT_PAGE_SIZE = 50;
+const DEFAULT_PAGE_SIZE = 25;
 
 /** Result table with click-to-sort, horizontal scroll, and client-side
  * pagination over the (already row-capped) result set. */
