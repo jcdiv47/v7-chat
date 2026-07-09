@@ -62,7 +62,10 @@ The sidebar organizes navigation and session history into sections, top to botto
 - `Customize`
 
 Keep the set small in V1. `Projects` and `Customize` may be stubs if not yet built, but
-the slots should exist so the layout matches the target design.
+the slots should exist so the layout matches the target design. While unavailable, render
+them as muted, non-navigating nav rows with a compact `Coming soon` badge and a hover/focus
+title such as `Projects is coming soon` or `Customize is coming soon`. They should not show
+active or hover states that imply the feature is usable.
 
 ### Session Sections
 

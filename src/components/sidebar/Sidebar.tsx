@@ -26,6 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Badge } from "@/components/ui/primitives";
 import { UserFooter } from "@/components/auth/UserFooter";
 
 type Thread = ThreadSummary;
@@ -100,13 +101,21 @@ export function Sidebar({
       {/* Primary nav */}
       <nav className="mt-3 space-y-0.5 px-3">
         <NavItem icon={<MessageSquare className="size-4" />} label="Chats" active />
-        <NavItem icon={<FolderClosed className="size-4" />} label="Projects" />
+        <NavItem
+          icon={<FolderClosed className="size-4" />}
+          label="Projects"
+          unavailable
+        />
         <NavItem
           icon={<BarChart3 className="size-4" />}
           label="Artifacts"
           onClick={onOpenArtifacts}
         />
-        <NavItem icon={<Settings2 className="size-4" />} label="Customize" />
+        <NavItem
+          icon={<Settings2 className="size-4" />}
+          label="Customize"
+          unavailable
+        />
       </nav>
 
       {/* Sessions */}
@@ -280,24 +289,41 @@ function NavItem({
   label,
   active,
   onClick,
+  unavailable,
 }: {
   icon: React.ReactNode;
   label: string;
   active?: boolean;
   onClick?: () => void;
+  unavailable?: boolean;
 }) {
+  const title = unavailable ? `${label} is coming soon` : undefined;
+
   return (
     <button
+      type="button"
       onClick={onClick}
+      aria-disabled={unavailable}
+      title={title}
       className={cn(
         "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors",
-        active
-          ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-          : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
+        unavailable
+          ? "cursor-default text-muted-foreground/65 hover:bg-transparent hover:text-muted-foreground/65"
+          : active
+            ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+            : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
       )}
     >
       {icon}
-      {label}
+      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      {unavailable && (
+        <Badge
+          variant="outline"
+          className="shrink-0 rounded px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground/80"
+        >
+          Coming soon
+        </Badge>
+      )}
     </button>
   );
 }
