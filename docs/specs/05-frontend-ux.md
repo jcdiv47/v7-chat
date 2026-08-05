@@ -162,7 +162,7 @@ except the final response renders inside one collapsible **work block** per turn
 - Reasoning and intermediate text render as muted prose on the rail.
 - Each tool call is a dot on the rail with a status color (running → done → error) and
   a human-readable label derived from the tool and its input, e.g.
-  `Loaded skill mall-domain-analysis`, `Described malls`, `Ran SQL query`. Tool calls
+  `Loaded skill business-domain-analysis`, `Described malls`, `Ran SQL query`. Tool calls
   are not grouped; each call is its own row. A row expands in place to reveal detail:
   arguments, the SQL, and a result preview.
 - **Streaming survives refresh.** The live view is driven by persisted run

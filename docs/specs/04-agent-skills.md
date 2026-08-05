@@ -19,17 +19,17 @@ Recommended project layout:
 
 ```txt
 agent-skills/
-  mall-domain-analysis/
+  business-domain-analysis/
     SKILL.md
     references/
       schema.md
       query-patterns.md
       glossary.md
-  postgres-analysis/
-    SKILL.md
   business-answer-style/
     SKILL.md
   chart-selection/
+    SKILL.md
+  asking-clarifications/
     SKILL.md
 ```
 
@@ -51,11 +51,11 @@ Each skill uses `SKILL.md` with YAML frontmatter.
 
 ```md
 ---
-name: mall-domain-analysis
-description: Use when answering business questions about cities, malls, stores, store counts, mall rankings, and city comparisons.
+name: business-domain-analysis
+description: Use when answering business questions about cities, malls, stores, brands, and whenever writing or revising SQL.
 ---
 
-# Mall Domain Analysis
+# Business Domain Analysis
 
 Instructions go here.
 ```
@@ -64,13 +64,13 @@ Instructions go here.
 
 Default visible skills:
 
-- `mall-domain-analysis`
-- `postgres-analysis`
+- `business-domain-analysis`
 - `business-answer-style`
 
-Optional visible skill:
+Optional visible skills:
 
 - `chart-selection`
+- `asking-clarifications`
 
 The agent should load a skill when:
 
@@ -78,6 +78,7 @@ The agent should load a skill when:
 - the user asks for a chart
 - the user asks for an explanation of a result
 - the agent is about to write SQL and needs query conventions
+- the request is ambiguous and the agent is considering an `askUser` call
 
 ## Skill Versioning
 
@@ -95,18 +96,19 @@ type SkillRunMetadata = {
 Example:
 
 ```txt
-skillsVersion = "2026-07-02.mall-v1"
+skillsVersion = "business-v1.a1b2c3d4"
 ```
 
 This makes behavior changes debuggable.
 
-## Skill: mall-domain-analysis
+## Skill: business-domain-analysis
 
 Purpose:
 
 - Teach the agent the business domain.
 - Document relationships between `cities`, `malls`, and `stores`.
 - Encourage grain-aware answers.
+- Steer SQL generation and query iteration.
 
 Key instructions:
 
@@ -117,21 +119,9 @@ Key instructions:
 - Use `left join` when looking for missing stores or empty malls.
 - Do not assume revenue, traffic, lease, category, or time-series data unless columns exist.
 - If the user asks about unavailable facts, say which data is missing.
-
-## Skill: postgres-analysis
-
-Purpose:
-
-- Steer SQL generation and query iteration.
-
-Key instructions:
-
 - Inspect schema before relying on column names.
-- Prefer simple CTEs for multi-step analysis.
-- Use clear aliases.
-- Avoid unnecessarily complex SQL.
-- Use `limit` for previews.
-- Use aggregate queries for rankings and comparisons.
+- Prefer simple CTEs with clear aliases; avoid unnecessarily complex SQL.
+- Use `limit` for previews and aggregate queries for rankings and comparisons.
 - Do not attempt writes.
 - If SQL fails, revise based on the database error.
 

@@ -1,6 +1,6 @@
 /**
  * Sample cities / malls / stores dataset mirroring the live `aiqa` schema
- * (Chinese mall/retail data; see agent-skills/mall-domain-analysis/references/
+ * (Chinese mall/retail data; see agent-skills/business-domain-analysis/references/
  * schema.md). Used to seed the offline pglite dev database (TUI / evals) and by
  * `scripts/seed-db.ts` to seed a real Postgres for local testing. Deliberately
  * includes an empty mall (北京新集市广场), a mall-less city (三沙市), and closed

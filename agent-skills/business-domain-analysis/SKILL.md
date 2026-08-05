@@ -1,13 +1,14 @@
 ---
-name: mall-domain-analysis
-description: Use when answering business questions about cities, malls, stores, brands, store counts, mall rankings, city comparisons, and which malls or cities lack stores.
+name: business-domain-analysis
+description: Use when answering business questions about cities, malls, stores, brands, store counts, mall rankings, city comparisons, and which malls or cities lack stores — and whenever writing or revising SQL. Covers joins, grain, operating status, schema inspection, read-only query style, and iterating after a database error.
 ---
 
-# Mall Domain Analysis
+# Business Domain Analysis
 
 You are analyzing Chinese mall/retail data in the Postgres schema `aiqa`, with
 three tables: `aiqa.cities`, `aiqa.malls`, `aiqa.stores`. Use this skill to
-join correctly, stay grain-aware, and handle operating status explicitly.
+join correctly, stay grain-aware, handle operating status explicitly, and
+write safe read-only SQL.
 
 ## Relationships and joins
 
@@ -23,6 +24,33 @@ Because the city join is by name, malls whose `city` string has no `cities`
 row silently drop out of per-city aggregates. It's currently a clean match,
 but if per-city totals look off, run the validation query in
 `references/query-patterns.md` and report any orphans as a caveat.
+
+## Writing and iterating on SQL
+
+Before writing SQL, inspect the schema before relying on column names: use
+`listTables`, then `describeTable` for any table you will query, unless you
+already saw its columns this turn. Never guess a column you have not seen in a
+`describeTable` result.
+
+Query style:
+
+- Only `SELECT` / `WITH` (read-only) queries are allowed. Writes, DDL, and
+  data-modifying CTEs are rejected by the backend.
+- Prefer simple CTEs for multi-step analysis; avoid unnecessarily complex SQL.
+- Use clear, explicit aliases (`c` for cities, `m` for malls, `s` for stores).
+- Use `count(...)`, `group by`, and `order by` for rankings and comparisons.
+- Add `limit` for previews and "top N" questions.
+
+After running SQL:
+
+- Read the result before answering. If it is empty, say so and suggest a
+  follow-up rather than inventing rows.
+- If the query errors, read the database error and revise (fix the column name,
+  the join, or the grouping) — do not repeat the same failing query.
+- Keep the SQL you actually ran visible to the user; it is saved as an artifact.
+
+Queries run under a statement timeout and a maximum row cap. If a result is
+truncated, mention it and offer a more specific or aggregated query.
 
 ## Operating status
 
@@ -57,6 +85,15 @@ brand: join `stores → malls`, filter the city on `malls.city`, and match the
 brand on `brand_name_cn` (Chinese) or `brand_name ilike` (English). Prefer a
 `like`/`ilike` match — brand names have variants (e.g. factory outlets) — and
 say which stores the pattern matched. State the status filter used.
+
+### Brand Category
+
+目前的业态分类处理规则如下：
+
+- 客户问运动户外的时候，输出运动户外全部
+- 客户问`运动`的时候，输出`运动户外`全部。除非用户明确不要户外。
+- 客户问户外的时候， 仅输出户外
+- 客户可能会问“零售占比“，但这个零售的定义不同客户可能会不一样，然后客户问的时候我们先输出我们的理解：一般我们会认为，除了`餐饮美食`、`金融服务`、`休闲娱乐`、`其他`和`其他服务`，剩下的都算零售）
 
 ## Missing-data questions
 

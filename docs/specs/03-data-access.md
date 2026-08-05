@@ -16,7 +16,7 @@ Current tables:
 - `malls`
 - `stores`
 
-The implementation should introspect actual columns rather than assuming exact names. Once confirmed, copy the canonical schema into the `mall-domain-analysis` skill.
+The implementation should introspect actual columns rather than assuming exact names. Once confirmed, copy the canonical schema into the `business-domain-analysis` skill.
 
 ## Expected Relationship Pattern
 

@@ -124,7 +124,7 @@ src/lib/
   sql/                  read-only guard, executor contract, pg + pglite executors, seed data
   skills/               skill source (bundled registry + disk loader)
 src/components/         Claude-like shell: sidebar, search, conversation, thinking/tool folding, artifacts
-agent-skills/           mall-domain-analysis, postgres-analysis, business-answer-style, chart-selection
+agent-skills/           business-domain-analysis, business-answer-style, chart-selection, asking-clarifications
 drizzle/                generated SQL migrations
 tui/                    TUI entrypoint
 evals/                  prompt set + runner

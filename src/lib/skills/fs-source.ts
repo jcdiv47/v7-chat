@@ -10,10 +10,10 @@ import type { Skill } from "./types";
 
 /** Priority order for skill listing (unlisted skills follow, alphabetically). */
 const SKILL_ORDER = [
-  "mall-domain-analysis",
-  "postgres-analysis",
+  "business-domain-analysis",
   "business-answer-style",
   "chart-selection",
+  "asking-clarifications",
 ];
 
 type Frontmatter = { name?: string; description?: string; body: string };
@@ -53,7 +53,7 @@ export type ReadSkillsResult = {
 
 export function readSkillsFromDisk(root = "agent-skills"): ReadSkillsResult {
   if (!existsSync(root)) {
-    return { version: "mall-v1.empty", skills: [] };
+    return { version: "business-v1.empty", skills: [] };
   }
 
   const hash = createHash("sha256");
@@ -98,6 +98,6 @@ export function readSkillsFromDisk(root = "agent-skills"): ReadSkillsResult {
     return a.name.localeCompare(b.name);
   });
 
-  const version = `mall-v1.${hash.digest("hex").slice(0, 8)}`;
+  const version = `business-v1.${hash.digest("hex").slice(0, 8)}`;
   return { version, skills };
 }

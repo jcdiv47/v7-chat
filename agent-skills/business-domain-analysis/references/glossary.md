@@ -10,7 +10,8 @@
   `StarBucks-s`) or `brand_name` / `brand_name_cn`. One brand has many stores.
 - **Status** — lifecycle state of a mall or store: `OPEN`, `CLOSED`, `DEAD`,
   `INITIAL` (imported, not yet verified), `PLANNED`, `REMODELLING_OPEN`,
-  `REMODELLING_CLOSED`. "Currently operating" ⇒ `OPEN` or `REMODELLING_OPEN`.
+  `REMODELLING_CLOSED`. "Currently operating" ⇒ `INITIAL`, `OPEN`, or
+  `REMODELLING_OPEN`.
 - **City tier / 城市等级** — `一线` (tier 1) through `五线` (tier 5) plus
   `新一线` (new tier 1); a common comparison dimension.
 - **Trade area / 商圈** — `shopping_area` on malls; the retail district a mall

@@ -86,15 +86,15 @@ function buildRegistry(): Record<ModelAlias, ModelDef> {
       modelId: env("MODEL_ANALYST") ?? "z-ai/glm-5.2:nitro",
       temperature: 0.7,
       maxOutputTokens: 4096,
-      reasoning: envReasoning("MODEL_ANALYST_REASONING", "medium"),
+      reasoning: envReasoning("MODEL_ANALYST_REASONING", "low"),
     },
     sql: {
       alias: "sql",
       displayName: "SQL",
-      modelId: env("MODEL_SQL") ?? "z-ai/glm-5.2:nitro",
+      modelId: env("MODEL_SQL") ?? "moonshotai/kimi-k2.6",
       temperature: 0.5,
       maxOutputTokens: 2048,
-      reasoning: envReasoning("MODEL_SQL_REASONING", "medium"),
+      reasoning: envReasoning("MODEL_SQL_REASONING", "low"),
     },
     summarizer: {
       alias: "summarizer",
