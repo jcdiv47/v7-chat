@@ -3,8 +3,8 @@
 # Configure host-side firewalling for the single-host deployment, without
 # touching the cloud security group.
 #
-#   sudo ./deploy/ufw-setup.sh --ssh-from 203.0.113.7        # recommended
-#   sudo ./deploy/ufw-setup.sh                               # leaves SSH open to all
+#   sudo ./deploy/ufw-setup.sh                               # SSH open to all (default)
+#   sudo ./deploy/ufw-setup.sh --ssh-from 203.0.113.7        # optional restriction
 #   ./deploy/ufw-setup.sh --dry-run                          # print, change nothing
 #
 # Two independent layers, because they protect different traffic:
@@ -103,7 +103,7 @@ ufw --force default allow outgoing
 # SSH first, and before enabling: locking yourself out of a remote host is the
 # one mistake here that cannot be undone over SSH.
 if [ "$ssh_from" = any ]; then
-  echo "    WARNING: allowing SSH from any address. Re-run with --ssh-from <ip>."
+  echo "    allowing SSH from any address (default)"
   ufw allow 22/tcp
 else
   ufw allow from "$ssh_from" to any port 22 proto tcp

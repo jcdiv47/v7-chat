@@ -84,7 +84,7 @@ to Docker or outbound.
 | TCP 80 | Internet | ACME HTTP-01 challenge and the redirect to HTTPS |
 | TCP 443 | Internet | The application |
 | UDP 443 | Internet | HTTP/3. Optional — clients fall back to TCP |
-| TCP 22 | One administrative IP | SSH. Prefer AWS Systems Manager and close it entirely |
+| TCP 22 | Internet | SSH; optionally restrict with `--ssh-from <admin-ip>` |
 
 Nothing else should be reachable. Only Caddy publishes ports: the app listens
 on 3000 inside the `frontend` Docker network, and both databases sit on a
@@ -110,16 +110,18 @@ ever starts listening there), and **`DOCKER-USER`** governs traffic forwarded
 to containers. `deploy/ufw-setup.sh` configures both:
 
 ```bash
-sudo ./deploy/ufw-setup.sh --ssh-from <your-admin-ip>
-./deploy/ufw-setup.sh --dry-run        # print the generated rules, change nothing
+sudo ./deploy/ufw-setup.sh              # SSH open to all (default)
+sudo ./deploy/ufw-setup.sh --ssh-from <your-admin-ip>  # optional restriction
+./deploy/ufw-setup.sh --dry-run         # print the generated rules, change nothing
 ```
 
-It sets ufw to default-deny inbound, allows SSH (from your address if given —
-do give it), and writes a managed `DOCKER-USER` block into
-`/etc/ufw/after.rules`, so the container rules survive both `ufw reload` and a
-reboot. Re-running replaces the block instead of stacking duplicates. The
-policy is default-deny with 80/443 allowed, plus a `RELATED,ESTABLISHED` rule
-first so the containers keep their outbound access to Clerk and OpenRouter.
+It sets ufw to default-deny inbound, allows SSH from any address by default,
+and writes a managed `DOCKER-USER` block into `/etc/ufw/after.rules`, so the
+container rules survive both `ufw reload` and a reboot. Pass `--ssh-from` when
+you want to restrict SSH to one IP or CIDR. Re-running replaces the block
+instead of stacking duplicates. The policy is default-deny with 80/443 allowed,
+plus a `RELATED,ESTABLISHED` rule first so the containers keep their outbound
+access to Clerk and OpenRouter.
 
 For the stack as it ships, the `DOCKER-USER` policy changes nothing today —
 Caddy publishes exactly 80/443 and the databases publish nothing. Its value is

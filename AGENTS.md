@@ -58,8 +58,7 @@ print their values back into a transcript or commit them.
 | `OPENROUTER_API_KEY` | OpenRouter dashboard | Omit only for `MODEL_PROVIDER=mock` |
 | Database passwords | `openssl rand -hex 32`, three times | Hex keeps them URL-safe; Compose interpolates them into connection URLs |
 | `data/*.csv` | Source analytical database | Gitignored; copied to the host separately. Headers must match `deploy/postgres/analytics-schema.sql` |
-| Host access | SSH key or SSM | 80/443 inbound, 22 restricted, **never** 5432/5433 |
-| Admin IP for SSH | Whoever administers the host | Passed to `deploy/ufw-setup.sh --ssh-from`; see "Ports" below |
+| Host access | SSH key or SSM | 80/443 and 22 inbound, **never** 5432/5433 |
 | Langfuse keys | Langfuse project settings | Optional; tracing is off when unset |
 
 These live in `deploy/aws.env` (production) and `deploy/local.env` (local
@@ -68,10 +67,10 @@ rehearsal), both gitignored via `/deploy/*.env`. Start from
 
 ### Ports
 
-Inbound: TCP 80 and 443 (plus UDP 443 for HTTP/3, optional) from the internet,
-TCP 22 from one administrative IP. Nothing else. Caddy is the only service that
-publishes a port; the app listens on 3000 inside the Docker network, and both
-databases are on an `internal: true` network with no host port.
+Inbound: TCP 80, 443, and 22 (plus UDP 443 for HTTP/3, optional) from the
+internet. Nothing else. Caddy is the only service that publishes a port; the app
+listens on 3000 inside the Docker network, and both databases are on an
+`internal: true` network with no host port.
 
 A Docker port publish writes its own `iptables` rules and is **not** filtered
 by ufw — a published port is reachable whether ufw is running or not. Never
@@ -79,11 +78,12 @@ tell a human that enabling ufw closes a Docker-published port. What does work:
 a rule in the `DOCKER-USER` chain (Docker consults it first and never
 overwrites it), binding the publish to `127.0.0.1`, or a cloud security group.
 
-`sudo ./deploy/ufw-setup.sh --ssh-from <admin-ip>` configures the host side of
-this without touching any cloud firewall: ufw default-deny for host services,
-plus a default-deny `DOCKER-USER` block allowing 80/443, persisted in
-`/etc/ufw/after.rules`. `--dry-run` prints the rules without applying them.
-Re-running replaces the managed block rather than duplicating it.
+`sudo ./deploy/ufw-setup.sh` configures the host side of this without touching
+any cloud firewall: ufw default-deny for host services with SSH open to all by
+default, plus a default-deny `DOCKER-USER` block allowing 80/443, persisted in
+`/etc/ufw/after.rules`. Pass `--ssh-from <admin-ip>` to restrict SSH optionally;
+`--dry-run` prints the rules without applying them. Re-running replaces the
+managed block rather than duplicating it.
 
 When editing those rules by hand, two things bite: `DOCKER-USER` runs after
 DNAT, so `--dport` is the *container* port rather than the published host port;
@@ -135,8 +135,8 @@ docker compose --env-file deploy/aws.env -f docker-compose.prod.yml logs -f app 
 # 3. Business data, from data/*.csv on the host
 ./scripts/import-intermediate-csv.sh
 
-# 4. Firewall (host-side; no cloud security group changes needed)
-sudo ./deploy/ufw-setup.sh --ssh-from <admin-ip>
+# 4. Firewall (host-side; SSH is open to all by default)
+sudo ./deploy/ufw-setup.sh
 
 # 5. Verify the agent's login is read-only
 docker compose --env-file deploy/aws.env -f docker-compose.prod.yml \
