@@ -1,6 +1,6 @@
 /**
  * Apply pending Drizzle migrations. Called once at boot (instrumentation.ts),
- * so a Railway deploy needs no separate release phase; also exposed as
+ * so a container deploy needs no separate release phase; also exposed as
  * `npm run db:migrate`. drizzle's migrator takes an advisory lock, so a
  * concurrent boot is safe.
  */

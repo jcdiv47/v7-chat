@@ -1,5 +1,5 @@
 /**
- * App database client: one pg Pool over DATABASE_URL (Railway private-network
+ * App database client: one pg Pool over DATABASE_URL (private Docker-network
  * URL in production, docker-compose Postgres in dev) wrapped by Drizzle.
  * globalThis-cached so Next dev hot reloads don't leak pools.
  */
@@ -18,7 +18,7 @@ function create(): DbGlobal {
   if (!url) {
     throw new Error(
       "DATABASE_URL is not set. Point it at the app Postgres " +
-        "(docker compose up -d db for dev; the Railway private URL in prod).",
+        "(docker compose up -d db for dev; the app-db URL in production).",
     );
   }
   const pool = new Pool({

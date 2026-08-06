@@ -35,13 +35,15 @@ flowchart LR
 
 ## Key Decisions
 
-- **Hosting:** one Railway service running `next start` with boot hooks for the
-  worker support code, sweeper, and deploy drain. The service is intentionally
-  long-lived; live runs are not tied to serverless request lifetimes.
-- **App database:** Railway Postgres in production, local Postgres in
-  development. The app uses `pg` plus Drizzle over `DATABASE_URL`; with one
-  long-lived process, no PgBouncer or Redis is required for V1.
-- **Search:** standard Railway Postgres only. V1 does not require custom
+- **Hosting:** one Dockerized `next start` service on an AWS EC2 host, with boot
+  hooks for the worker support code, sweeper, and deploy drain. The service is
+  intentionally long-lived; live runs are not tied to serverless request
+  lifetimes. Caddy terminates TLS and proxies SSE on the same host.
+- **Databases:** App Postgres and Intermediate Postgres run in separate
+  containers on the same host and private Docker network. The app uses `pg`
+  plus Drizzle over `DATABASE_URL`; with one long-lived process, no PgBouncer
+  or Redis is required for V1.
+- **Search:** standard Postgres is sufficient. V1 does not require custom
   Postgres extensions such as PGroonga or `pg_trgm`; the app tokenizes titles
   into English terms and Chinese bigrams and stores them in a separate search
   index table.

@@ -41,25 +41,40 @@ still required for the browser app. Migrations apply automatically at boot.
 
 ## Going live (real model + database)
 
-1. **Model** — set `OPENROUTER_API_KEY` in `.env.local` (or Railway service
-   variables) and leave `MODEL_PROVIDER` unset.
+1. **Model** — set `OPENROUTER_API_KEY` in `.env.local` (or the production
+   Compose environment) and leave `MODEL_PROVIDER` unset.
 2. **Database** — point `INTERMEDIATE_DATABASE_URL` at a read-only Postgres
-   containing `cities`, `malls`, `stores`. To create a local sample database:
-   `SEED_DATABASE_URL=postgres://... npm run seed`.
+   containing `cities`, `malls`, `stores`. Either seed the small sample dataset
+   (`SEED_DATABASE_URL=postgres://... npm run seed`), or load the real business
+   CSVs from `data/`:
+
+   ```bash
+   docker compose up -d intermediate-db          # analytical Postgres on localhost:5434
+   ./scripts/import-intermediate-csv.sh --dev    # loads data/{cities,malls,stores}.csv
+   ```
+
+   `data/*.csv` is gitignored; copy the files in separately. The import builds
+   the whole dataset in a staging schema — loading it, verifying the references
+   between the three tables, then adding indexes and statistics — and renames
+   that schema into place in one transaction, so queries never see a partial
+   dataset and a failed import leaves the previous one serving. See
+   [`docs/deployment/aws-single-host.md`](./docs/deployment/aws-single-host.md)
+   for the production form of the same step.
 
 Model aliases (`fast`, `analyst`, `sql`, `summarizer`) are defined in
 [`src/lib/models/registry.ts`](./src/lib/models/registry.ts) and overridable per
 alias with `MODEL_ANALYST=...` etc. See [`.env.example`](./.env.example).
 
-## Deploying (Railway)
+## Deploying (single AWS host)
 
-One service (`next build` / `next start`) plus a Railway Postgres. Set
-`DATABASE_URL` to the **private network** URL, plus the model/database vars
-above, the Clerk keys (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and
-`CLERK_SECRET_KEY`), and `NEXT_MANUAL_SIG_HANDLE=true` so the SIGTERM drain can
-finish in-flight runs on deploys. `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` must be
-present at build time because it is inlined into the client bundle. Migrations
-run at boot.
+The production stack in [`docker-compose.prod.yml`](./docker-compose.prod.yml)
+runs Caddy, the long-lived Next.js service, App Postgres, and the read-only
+intermediate Postgres on one machine. Only Caddy publishes host ports; both
+databases stay on the private Docker network. Migrations run when the app
+boots, and the app receives a grace period to drain in-flight runs on deploy.
+
+See [`docs/deployment/aws-single-host.md`](./docs/deployment/aws-single-host.md)
+for EC2 setup, configuration, data loading, deployment, and backup steps.
 
 ## TUI (fast local iteration)
 
@@ -137,12 +152,14 @@ scripts/                skill bundler, DB seeder
 | --- | --- |
 | `npm run dev` | Next.js dev server (bundles skills first) |
 | `docker compose up -d db` | Dev app Postgres (port 5433) |
+| `docker compose up -d intermediate-db` | Dev analytical Postgres (port 5434) |
 | `npm run build` | Production build |
 | `npm run db:generate` | Generate a migration from schema changes |
 | `npm run db:migrate` | Apply migrations (also happens at boot) |
 | `npm run tui` | Terminal agent loop |
 | `npm run eval` | Eval suite |
 | `npm run seed` | Seed a real Postgres with sample data |
+| `./scripts/import-intermediate-csv.sh --dev` | Load `data/*.csv` into the dev analytical Postgres |
 | `npm run typecheck` | `tsc --noEmit` |
 
 ## V1 scope

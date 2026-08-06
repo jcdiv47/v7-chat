@@ -1,0 +1,139 @@
+name: v7-chat
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in deploy/aws.env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in deploy/aws.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - frontend
+    logging: *default-logging
+
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in deploy/aws.env}
+        NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+        NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 40s
+    depends_on:
+      app-db:
+        condition: service_healthy
+      intermediate-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://v7:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in deploy/aws.env}@app-db:5432/v7_chat
+      INTERMEDIATE_DATABASE_URL: postgresql://v7_readonly:${INTERMEDIATE_READONLY_PASSWORD:?Set INTERMEDIATE_READONLY_PASSWORD in deploy/aws.env}@intermediate-db:5432/analytics
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set CLERK_SECRET_KEY in deploy/aws.env}
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_APP_URL: https://${DOMAIN}
+      OPENROUTER_APP_TITLE: ${OPENROUTER_APP_TITLE:-v7 Business Analyst}
+      MODEL_PROVIDER: ${MODEL_PROVIDER:-}
+      MODEL_FAST: ${MODEL_FAST:-}
+      MODEL_ANALYST: ${MODEL_ANALYST:-}
+      MODEL_SQL: ${MODEL_SQL:-}
+      MODEL_SUMMARIZER: ${MODEL_SUMMARIZER:-}
+      MODEL_FAST_REASONING: ${MODEL_FAST_REASONING:-}
+      MODEL_ANALYST_REASONING: ${MODEL_ANALYST_REASONING:-}
+      MODEL_SQL_REASONING: ${MODEL_SQL_REASONING:-}
+      MODEL_SUMMARIZER_REASONING: ${MODEL_SUMMARIZER_REASONING:-}
+      APP_VERSION: ${APP_VERSION:-}
+      SQL_STATEMENT_TIMEOUT_MS: ${SQL_STATEMENT_TIMEOUT_MS:-10000}
+      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL:-}
+      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}
+      LANGFUSE_RELEASE: ${LANGFUSE_RELEASE:-}
+      NEXT_MANUAL_SIG_HANDLE: "true"
+      DRAIN_GRACE_MS: ${DRAIN_GRACE_MS:-25000}
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - frontend
+      - backend
+    logging: *default-logging
+
+  app-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: v7
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in deploy/aws.env}
+      POSTGRES_DB: v7_chat
+    volumes:
+      - app-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U v7 -d v7_chat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - backend
+    logging: *default-logging
+
+  intermediate-db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: intermediate_admin
+      POSTGRES_PASSWORD: ${INTERMEDIATE_ADMIN_PASSWORD:?Set INTERMEDIATE_ADMIN_PASSWORD in deploy/aws.env}
+      POSTGRES_DB: analytics
+      INTERMEDIATE_READONLY_PASSWORD: ${INTERMEDIATE_READONLY_PASSWORD:?Set INTERMEDIATE_READONLY_PASSWORD in deploy/aws.env}
+    volumes:
+      - intermediate-db-data:/var/lib/postgresql/data
+      - ./deploy/postgres/init-intermediate.sh:/docker-entrypoint-initdb.d/10-readonly.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U intermediate_admin -d analytics"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - backend
+    logging: *default-logging
+
+networks:
+  frontend:
+  backend:
+    internal: true
+
+volumes:
+  app-db-data:
+  intermediate-db-data:
+  caddy-data:
+  caddy-config:

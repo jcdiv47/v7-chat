@@ -1,5 +1,5 @@
 /**
- * App database schema (Drizzle over Railway/local Postgres). Core app tables
+ * App database schema (Drizzle over production/local Postgres). Core app tables
  * hold threads, messages, runs, events, artifacts, and persisted stream
  * chunks. IDs are UUIDv7 (time-ordered), generated app-side. user_id is text
  * because Clerk user IDs are strings, and BetterAuth would fit the same shape

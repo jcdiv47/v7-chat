@@ -1,6 +1,11 @@
-# Dev app database (threads/messages/runs/chunks). Port 5433 to stay clear of
-# any local Postgres on 5432. Matches the DATABASE_URL default in .env.example.
+# Dev databases. Ports 5433/5434 stay clear of any local Postgres on 5432 and
+# match the DATABASE_URL / INTERMEDIATE_DATABASE_URL defaults in .env.example.
+#
+# Both publishes are bound to loopback. A Docker port publish installs its own
+# iptables rules and is not filtered by ufw, so an unqualified "5433:5432"
+# would offer these databases to the whole network — with dev passwords.
 services:
+  # App database (threads/messages/runs/chunks).
   db:
     image: postgres:17-alpine
     environment:
@@ -8,9 +13,30 @@ services:
       POSTGRES_PASSWORD: v7
       POSTGRES_DB: v7_chat
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - v7-chat-pgdata:/var/lib/postgresql/data
 
+  # Intermediate (analytical) database, so dev can run against the real
+  # cities/malls/stores CSVs instead of the sample dataset:
+  #   docker compose up -d intermediate-db
+  #   ./scripts/import-intermediate-csv.sh --dev
+  # Uses the same init script and read-only role as production, with dev
+  # passwords. Unlike production it publishes a port, since `npm run dev` runs
+  # on the host.
+  intermediate-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: intermediate_admin
+      POSTGRES_PASSWORD: intermediate
+      POSTGRES_DB: analytics
+      INTERMEDIATE_READONLY_PASSWORD: readonly
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - v7-chat-intermediate-pgdata:/var/lib/postgresql/data
+      - ./deploy/postgres/init-intermediate.sh:/docker-entrypoint-initdb.d/10-readonly.sh:ro
+
 volumes:
   v7-chat-pgdata:
+  v7-chat-intermediate-pgdata:

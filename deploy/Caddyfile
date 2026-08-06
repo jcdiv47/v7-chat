@@ -1,0 +1,17 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy app:3000 {
+		# Send SSE chunks immediately instead of buffering a response.
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

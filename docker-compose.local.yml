@@ -1,0 +1,18 @@
+# Local rehearsal of the production stack. Use with docker-compose.prod.yml:
+#
+#   docker compose --env-file deploy/local.env -p v7-chat-local \
+#     -f docker-compose.prod.yml -f docker-compose.local.yml up -d --build
+#
+# The only change is publishing the app port, so the stack can be exercised at
+# http://localhost:3000 without DNS or a public certificate. The databases stay
+# on the internal network exactly as in production (an internal network cannot
+# publish ports anyway) — reach them with `exec ... psql`.
+#
+# The publish is bound to loopback: a Docker port publish inserts its own
+# iptables rules and is therefore *not* filtered by ufw, so binding to
+# 0.0.0.0 here would expose an unproxied app to the network regardless of the
+# host firewall. Never use this override on a real host.
+services:
+  app:
+    ports:
+      - "127.0.0.1:3000:3000"

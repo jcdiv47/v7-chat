@@ -115,7 +115,7 @@ function getProvider() {
   if (!apiKey) {
     throw new Error(
       "OPENROUTER_API_KEY is not set. Set it in the server environment " +
-        "(.env.local / Railway variables), or set MODEL_PROVIDER=mock to use the offline demo runner.",
+        "(.env.local / production variables), or set MODEL_PROVIDER=mock to use the offline demo runner.",
     );
   }
   _provider = createOpenAICompatible({

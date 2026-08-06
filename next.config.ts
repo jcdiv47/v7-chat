@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Produce the minimal server bundle copied into the production container.
+  output: "standalone",
   // Type errors are caught by `npm run typecheck`; keep dev/builds fast.
   typescript: { ignoreBuildErrors: false },
   // Tracing state (registered telemetry integrations, OTel tracer provider,

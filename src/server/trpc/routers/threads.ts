@@ -66,7 +66,7 @@ export const threadsRouter = router({
 
   /** Title search for the ⌘K palette. Matches app-managed search_terms —
    * English words by prefix (so it narrows as you type) and Chinese bigrams
-   * exactly — so standard Railway Postgres is enough. */
+   * exactly — so standard Postgres is enough. */
   search: publicProcedure
     .input(z.object({ query: z.string().max(200) }))
     .query(async ({ ctx, input }) => {
