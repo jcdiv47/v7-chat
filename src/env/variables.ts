@@ -45,6 +45,10 @@ export type Declaration<S extends z.ZodType = z.ZodType> = {
   consumer: string;
   /** Operational context rendered in the generated configuration reference. */
   notes?: string;
+  /** Override inferred documentation when requirements differ by consumer. */
+  documentedRequirement?: string;
+  /** Override the inferred default when defaults differ by consumer. */
+  documentedDefault?: string;
   /** Completes "expected …" in a problem line. */
   expectation: string;
 };
@@ -160,6 +164,8 @@ export const serverVariables = {
     schema: postgresUrl(),
     secret: true,
     consumer: "src/server/db/client.ts, drizzle.config.ts",
+    documentedRequirement: "Yes (app); No (Drizzle CLI)",
+    documentedDefault: `none (app); \`${DEV_DATABASE_URL}\` (Drizzle CLI)`,
     expectation: "a Postgres connection URL (postgres:// or postgresql://)",
   },
   CLERK_SECRET_KEY: {

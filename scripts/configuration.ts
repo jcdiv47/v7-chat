@@ -36,7 +36,12 @@ export function renderHostVariableTable(
 ): string {
   const rows = Object.entries(declarations).map(([name, declaration]) => {
     const { required, defaultValue } = schemaRequirementAndDefault(declaration);
-    return `| ${code(name)} | ${markdown(declaration.capability)} | ${required ? "Yes" : "No"} | ${defaultValue === "none" ? "none" : code(defaultValue)} | ${markdown(declaration.consumer)} | ${markdown(declaration.notes ?? declaration.expectation)} |`;
+    const documentedRequirement =
+      declaration.documentedRequirement ?? (required ? "Yes" : "No");
+    const documentedDefault =
+      declaration.documentedDefault ??
+      (defaultValue === "none" ? "none" : code(defaultValue));
+    return `| ${code(name)} | ${markdown(declaration.capability)} | ${markdown(documentedRequirement)} | ${markdown(documentedDefault)} | ${markdown(declaration.consumer)} | ${markdown(declaration.notes ?? declaration.expectation)} |`;
   });
 
   return [

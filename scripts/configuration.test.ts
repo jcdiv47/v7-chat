@@ -34,6 +34,14 @@ describe("configuration reference generation", () => {
     expect(table).toContain("`NEXT_PUBLIC_APP_VERSION`");
   });
 
+  it("documents consumer-specific requirements and defaults", () => {
+    const table = renderHostVariableTable(serverVariables);
+
+    expect(table).toContain(
+      "| `DATABASE_URL` | core | Yes (app); No (Drizzle CLI) | none (app); `postgres://v7:v7@localhost:5433/v7_chat` (Drizzle CLI) |",
+    );
+  });
+
   it("replaces only marked generated regions", () => {
     const source = [
       "hand-written preamble",

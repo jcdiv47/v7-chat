@@ -33,37 +33,23 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_...
 CLERK_SECRET_KEY=sk_...
 ```
 
-With `MODEL_PROVIDER=mock` (or no `OPENROUTER_API_KEY`), the chat runs a
-**deterministic offline demo** that streams reasoning, tool calls, a result
-table, and a chart — enough to exercise the whole UI, streaming, and
-resumability without a model provider or analytical database. Clerk auth is
-still required for the browser app. Migrations apply automatically at boot.
+The demo streams reasoning, tool calls, a result table, and a chart. Clerk auth
+is still required for the browser app. Migrations apply automatically at boot.
 
 ## Going live (real model + database)
 
-1. **Model** — set `OPENROUTER_API_KEY` in `.env.local` (or the production
-   Compose environment) and leave `MODEL_PROVIDER` unset.
-2. **Database** — point `INTERMEDIATE_DATABASE_URL` at a read-only Postgres
-   containing `cities`, `malls`, `stores`. Either seed the small sample dataset
-   (`SEED_DATABASE_URL=postgres://... npm run seed`), or load the real business
-   CSVs from `data/`:
+Configure the real-model and analytical-database capabilities as described in
+[`docs/configuration.md`](./docs/configuration.md), then load either the sample
+dataset (`npm run seed`) or the business CSVs:
 
-   ```bash
-   docker compose up -d intermediate-db          # analytical Postgres on localhost:5434
-   ./scripts/import-intermediate-csv.sh --dev    # loads data/{cities,malls,stores}.csv
-   ```
+```bash
+docker compose up -d intermediate-db          # analytical Postgres on localhost:5434
+./scripts/import-intermediate-csv.sh --dev    # loads data/{cities,malls,stores}.csv
+```
 
-   `data/*.csv` is gitignored; copy the files in separately. The import builds
-   the whole dataset in a staging schema — loading it, verifying the references
-   between the three tables, then adding indexes and statistics — and renames
-   that schema into place in one transaction, so queries never see a partial
-   dataset and a failed import leaves the previous one serving. See
-   [`docs/deployment/aws-single-host.md`](./docs/deployment/aws-single-host.md)
-   for the production form of the same step.
-
-Model aliases (`fast`, `analyst`, `sql`, `summarizer`) are defined in
-[`src/lib/models/registry.ts`](./src/lib/models/registry.ts) and overridable per
-alias with `MODEL_ANALYST=...` etc.
+`data/*.csv` is gitignored; copy the files in separately. See
+[`docs/deployment/aws-single-host.md`](./docs/deployment/aws-single-host.md) for
+the production import procedure.
 
 ## Configuration
 
@@ -86,8 +72,8 @@ for EC2 setup, configuration, data loading, deployment, and backup steps.
 ## TUI (fast local iteration)
 
 Runs the **same agent definition** as the web app against a Node Postgres
-executor — a real `INTERMEDIATE_DATABASE_URL`, or a seeded in-process **pglite**
-database when none is set (zero setup):
+executor. See [`docs/configuration.md`](./docs/configuration.md) for its model
+and database configuration:
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-...

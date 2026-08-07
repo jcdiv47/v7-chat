@@ -31,8 +31,7 @@ cp .env.example .env.local             # fill in Clerk keys at minimum
 npm run dev                            # http://localhost:3000
 ```
 
-- Demo mode: `MODEL_PROVIDER=mock` runs a deterministic offline agent. Clerk is
-  still required.
+- The offline demo flow is in `README.md`; Clerk is still required.
 - Business data: `./scripts/import-intermediate-csv.sh --dev` loads
   `data/*.csv` into the dev analytical database; `npm run seed` loads the small
   sample dataset instead.
@@ -54,9 +53,9 @@ in `docs/configuration.md`; this table is only about where a human gets it.
 | Item | Where it comes from |
 | --- | --- |
 | Domain name + DNS | Registrar / Route 53 |
-| `ACME_EMAIL` | Ops mailbox |
+| ACME contact email | Ops mailbox |
 | Clerk production keys | Clerk dashboard → API keys |
-| `OPENROUTER_API_KEY` | OpenRouter dashboard |
+| OpenRouter API key | OpenRouter dashboard |
 | Database passwords | `openssl rand -hex 32`, three times |
 | `data/*.csv` | Source analytical database; headers must match `deploy/postgres/analytics-schema.sql` |
 | Host access | SSH key or SSM — 80/443 and 22 inbound, **never** 5432/5433 |
@@ -148,7 +147,7 @@ docker compose --env-file deploy/aws.env -f docker-compose.prod.yml \
 ```
 
 Deploying updates is `git pull --ff-only` plus the same `up -d --build`. The
-old container drains in-flight runs for `DRAIN_GRACE_MS` before exiting.
+old container uses the configured grace period to drain in-flight runs.
 
 ### Data imports
 
@@ -165,8 +164,8 @@ Consequences to rely on:
 - Any failure before the swap leaves the previous dataset live. Fix the CSVs
   and re-run; stale staging schemas are rebuilt automatically.
 - The swap replaces the entire schema, so the script refuses to run when `aiqa`
-  holds objects it does not build. Move them, or pass
-  `IMPORT_ALLOW_EXTRA_OBJECTS=1` to discard them.
+  holds objects it does not build. Move them, or use the documented import
+  opt-in to discard them.
 - Both datasets coexist during an import — the volume needs ~2× headroom.
 
 ### Things that will bite

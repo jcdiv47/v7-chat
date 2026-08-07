@@ -115,7 +115,7 @@ entries.
 <!-- BEGIN GENERATED HOST CONFIGURATION -->
 | Variable | Capability | Required | Default | Read by | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `DATABASE_URL` | core | Yes | none | src/server/db/client.ts, drizzle.config.ts | a Postgres connection URL (postgres:// or postgresql://) |
+| `DATABASE_URL` | core | Yes (app); No (Drizzle CLI) | none (app); `postgres://v7:v7@localhost:5433/v7_chat` (Drizzle CLI) | src/server/db/client.ts, drizzle.config.ts | a Postgres connection URL (postgres:// or postgresql://) |
 | `CLERK_SECRET_KEY` | core | Yes | none | Clerk SDK (server) | a Clerk secret key |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | core | Yes | none | Clerk SDK (clerkMiddleware in src/proxy.ts, React providers) | a Clerk publishable key |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | core | No | `/sign-in` | Clerk SDK | a path to the sign-in page |
