@@ -31,5 +31,3 @@ data/*.csv
 .agents/skills
 .claude/skills
 skills-lock.json
-
-CLAUDE.md
