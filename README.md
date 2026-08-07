@@ -63,7 +63,14 @@ still required for the browser app. Migrations apply automatically at boot.
 
 Model aliases (`fast`, `analyst`, `sql`, `summarizer`) are defined in
 [`src/lib/models/registry.ts`](./src/lib/models/registry.ts) and overridable per
-alias with `MODEL_ANALYST=...` etc. See [`.env.example`](./.env.example).
+alias with `MODEL_ANALYST=...` etc.
+
+## Configuration
+
+Every environment variable — what sets it, what reads it, whether it is
+required, and why laptop configuration and deployment-host configuration are
+two separate surfaces — is documented in
+[`docs/configuration.md`](./docs/configuration.md).
 
 ## Deploying (single AWS host)
 

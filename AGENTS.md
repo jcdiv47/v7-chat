@@ -14,11 +14,12 @@ A single long-lived Next.js service backed by **Postgres** (Drizzle ORM) with a
 - The agent run loop is in-process (`src/server/run-worker.ts`); live output
   streams over the `runs.stream` tRPC SSE subscription.
 - Auth is Clerk and mandatory: every page requires sign-in and the tRPC context
-  scopes all data by the Clerk user id. Clerk keys must be set in `.env.local`
-  — and at build time, because `NEXT_PUBLIC_*` is inlined into the client
-  bundle.
+  scopes all data by the Clerk user id.
 - The agent queries a second, read-only **intermediate** Postgres holding the
   business data (`aiqa.cities`, `aiqa.malls`, `aiqa.stores`).
+- Every environment variable — the two configuration surfaces, defaults, and
+  which component reads what — is in `docs/configuration.md`. Do not restate
+  variable semantics elsewhere.
 
 ## Local development
 
@@ -30,12 +31,11 @@ cp .env.example .env.local             # fill in Clerk keys at minimum
 npm run dev                            # http://localhost:3000
 ```
 
-- Demo mode: `MODEL_PROVIDER=mock` runs a deterministic offline agent — no
-  model API key or analytical database needed. Clerk is still required.
+- Demo mode: `MODEL_PROVIDER=mock` runs a deterministic offline agent. Clerk is
+  still required.
 - Business data: `./scripts/import-intermediate-csv.sh --dev` loads
-  `data/*.csv` into the dev analytical database. Without a reachable
-  `INTERMEDIATE_DATABASE_URL`, the TUI and evals fall back to an in-process
-  pglite database seeded with the sample dataset (`npm run seed`).
+  `data/*.csv` into the dev analytical database; `npm run seed` loads the small
+  sample dataset instead.
 
 ## Deployment
 
@@ -48,24 +48,24 @@ therefore **cannot publish ports at all** — reach them with
 ### What a human must prepare first
 
 An agent cannot obtain any of these. Ask for them before starting, and never
-print their values back into a transcript or commit them.
+print their values back into a transcript or commit them. What each one does is
+in `docs/configuration.md`; this table is only about where a human gets it.
 
-| Item | Where it comes from | Notes |
-| --- | --- | --- |
-| Domain name + DNS | Registrar / Route 53 | A/AAAA record pointing at the host **before** Caddy starts, or ACME fails |
-| `ACME_EMAIL` | Ops mailbox | Let's Encrypt expiry notices |
-| Clerk production keys | Clerk dashboard → API keys | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is also a **build argument**; changing it needs a rebuild, not just a restart |
-| `OPENROUTER_API_KEY` | OpenRouter dashboard | Omit only for `MODEL_PROVIDER=mock` |
-| Database passwords | `openssl rand -hex 32`, three times | Hex keeps them URL-safe; Compose interpolates them into connection URLs |
-| `data/*.csv` | Source analytical database | Gitignored; copied to the host separately. Headers must match `deploy/postgres/analytics-schema.sql` |
-| Host access | SSH key or SSM | 80/443 and 22 inbound, **never** 5432/5433 |
-| Langfuse keys | Langfuse project settings | Optional; tracing is off when unset |
+| Item | Where it comes from |
+| --- | --- |
+| Domain name + DNS | Registrar / Route 53 |
+| `ACME_EMAIL` | Ops mailbox |
+| Clerk production keys | Clerk dashboard → API keys |
+| `OPENROUTER_API_KEY` | OpenRouter dashboard |
+| Database passwords | `openssl rand -hex 32`, three times |
+| `data/*.csv` | Source analytical database; headers must match `deploy/postgres/analytics-schema.sql` |
+| Host access | SSH key or SSM — 80/443 and 22 inbound, **never** 5432/5433 |
+| Langfuse keys | Langfuse project settings (optional) |
 
 These live in `deploy/aws.env` (production) and `deploy/rehearsal.env` (local
 rehearsal), both gitignored via `/deploy/*.env`. Start from
 `deploy/stack.env.example`, which templates both. Do not rename any of the
-three — the asymmetry is deliberate, and
-`docs/deployment/aws-single-host.md` says why.
+three — the asymmetry is deliberate, and `docs/configuration.md` says why.
 
 ### Ports
 
@@ -173,11 +173,8 @@ Consequences to rely on:
 
 - One app replica only: live run publication is in-memory.
 - Never `docker compose down -v` in production; `-v` deletes database volumes.
-- Changing a password in `deploy/aws.env` does not rotate the Postgres role;
-  rotate it in the database, then recreate the container.
-- The intermediate database's init script (`deploy/postgres/init-intermediate.sh`)
-  runs **only** on first volume initialization, so a changed
-  `INTERMEDIATE_READONLY_PASSWORD` is not applied to an existing volume.
+- Rotating a database password is not a matter of editing `deploy/aws.env`.
+  Read `docs/configuration.md` first.
 
 ## Agent skills
 

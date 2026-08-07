@@ -163,16 +163,14 @@ Fill every required value. Generate each database password independently:
 openssl rand -hex 32
 ```
 
-Hex passwords are recommended because Compose inserts them into PostgreSQL
-connection URLs. Use Clerk production keys. The Clerk publishable key is also
-a Docker build argument because Next.js embeds it in the client bundle.
+Use Clerk production keys.
 
-`deploy/stack.env.example` templates both stack env files. The names are
-deliberately asymmetric: `deploy/aws.env` is named for *where* it runs, because
-only this host ever holds it and it lives outside any checkout, while
-`deploy/rehearsal.env` is named for *what it does*, because it is a local
-artefact. Do not "fix" the asymmetry — renaming the production file would force
-a manual step on the server for no benefit.
+[`docs/configuration.md`](../configuration.md) is the reference for every
+variable in this file: what it is consumed by, whether it reaches the app
+process, how Compose assembles the two database URLs from the passwords, why
+changing the Clerk publishable key needs a rebuild rather than a restart, and
+why the `aws.env` / `rehearsal.env` naming asymmetry is deliberate and must not
+be "fixed".
 
 ## 3. Start the stack
 
