@@ -189,7 +189,8 @@ them in `.env.local`.
 Set in `deploy/aws.env` or `deploy/rehearsal.env`; read by Docker Compose when
 interpolating `docker-compose.prod.yml`. Both files are gitignored and should be
 `chmod 600`. Required values use Compose's `${VAR:?...}` form, so a missing one
-fails the `up` with a message naming the file.
+fails the `up` with a message naming the stack surface and pointing back to this
+reference.
 
 | Variable | Required | Default | Consumed by | Reaches the app? | Notes |
 | --- | --- | --- | --- | --- | --- |
@@ -221,12 +222,13 @@ and is not configurable from a stack env file: `DATABASE_URL`,
 ## Script invocation variables
 
 These belong to neither surface — they are set on the command line for a single
-run of `scripts/import-intermediate-csv.sh`.
+script invocation.
 
-| Variable | Required | Default | Notes |
-| --- | --- | --- | --- |
-| `DATA_DIR` | No | `data` | Directory holding `cities.csv`, `malls.csv`, `stores.csv`. |
-| `IMPORT_ALLOW_EXTRA_OBJECTS` | No | unset | Set to `1` to let the schema swap discard objects in `aiqa` that the script did not build. The script refuses to run otherwise. |
+| Variable | Required | Default | Read by | Notes |
+| --- | --- | --- | --- | --- |
+| `DATA_DIR` | No | `data` | `scripts/import-intermediate-csv.sh` | Directory holding `cities.csv`, `malls.csv`, `stores.csv`. |
+| `IMPORT_ALLOW_EXTRA_OBJECTS` | No | unset | `scripts/import-intermediate-csv.sh` | Set to `1` to let the schema swap discard objects in `aiqa` that the script did not build. The script refuses to run otherwise. |
+| `EXT_IF` | No | default-route network interface | `deploy/ufw-setup.sh` | Override the external interface when it cannot be detected automatically. |
 
 ## Related documents
 
