@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "skills:bundle": "tsx scripts/bundle-skills.ts",
+    "config:generate": "tsx scripts/configuration.ts --write",
+    "config:check": "tsx scripts/configuration.ts --check",
     "predev": "npm run skills:bundle",
     "dev": "next dev",
     "prebuild": "npm run skills:bundle",

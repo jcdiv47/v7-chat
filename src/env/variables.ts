@@ -14,6 +14,8 @@
  * - `secret` — whether the value must be redacted in error output. The primary
  *   consumer of a validation failure is a deploy log.
  * - `consumer` — which component reads it.
+ * - `notes` — optional operational context for the generated configuration
+ *   reference. When absent, the validation expectation is used.
  * - `expectation` — a human phrase completing "expected …", used verbatim in
  *   error output so the message does not depend on Zod's wording.
  *
@@ -41,6 +43,8 @@ export type Declaration<S extends z.ZodType = z.ZodType> = {
   secret: boolean;
   /** Which component reads it. */
   consumer: string;
+  /** Operational context rendered in the generated configuration reference. */
+  notes?: string;
   /** Completes "expected …" in a problem line. */
   expectation: string;
 };
@@ -139,6 +143,8 @@ export const publicVariables = {
     schema: z.string().optional(),
     secret: false,
     consumer: "src/lib/app-version.ts",
+    notes:
+      "Used after APP_VERSION and before package.json; inlined into client code at build time.",
     expectation: "a version string",
   },
 } satisfies VariableTable;
@@ -293,6 +299,8 @@ export const serverVariables = {
     schema: positiveInt().default(700_000),
     secret: false,
     consumer: "src/lib/sql/executor.ts",
+    notes:
+      "Bounds serialized and persisted table artifacts. Not passed through by production Compose.",
     expectation: "a positive whole number of bytes",
   },
 
