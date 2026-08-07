@@ -12,6 +12,7 @@
  */
 import { z } from "zod";
 import {
+  capabilityVariables,
   DEV_DATABASE_URL,
   modelProviders,
   publicVariables,
@@ -69,9 +70,11 @@ function objectSchema<T extends VariableTable>(table: T) {
 
 const serverSchema = objectSchema(serverVariables);
 const publicSchema = objectSchema(publicVariables);
+const capabilitySchema = objectSchema(capabilityVariables);
 
 export type ServerEnv = z.infer<typeof serverSchema>;
 export type PublicEnv = z.infer<typeof publicSchema>;
+export type CapabilityEnv = z.infer<typeof capabilitySchema>;
 
 const REDACTED = (length: number) =>
   `«redacted, ${length} ${length === 1 ? "character" : "characters"}»`;
@@ -124,10 +127,10 @@ function toProblems(
  * that these problems aggregate with the shape problems instead of hiding
  * behind them.
  *
- * Note that this is stricter than what the running app does today, where an
- * absent `OPENROUTER_API_KEY` silently falls back to the demo agent. It applies
- * to `parseServerEnv` only: the scoped parses below deliberately skip it, since
- * a consumer that names its capabilities has already said what it requires.
+ * This is stricter than what the running app does, where an absent
+ * `OPENROUTER_API_KEY` falls back to the demo agent — which is why the server's
+ * boot check turns it off. Scoped parses also skip these requirements because a
+ * consumer names the capabilities it needs. See `ServerParseOptions`.
  */
 function conditionalProblems(normalized: Record<string, string>): EnvProblem[] {
   const provider = normalized.MODEL_PROVIDER;
@@ -163,11 +166,34 @@ function conditionalProblems(normalized: Record<string, string>): EnvProblem[] {
   return problems;
 }
 
+export type ServerParseOptions = {
+  /**
+   * Enforce the conditional requirements above: a live provider must have an
+   * OpenRouter key and an analytical database URL.
+   *
+   * The server's boot check passes `false`. Those two variables are gated on a
+   * capability, and the call sites that need the capability already throw with
+   * error text naming the fix — "set MODEL_PROVIDER=mock to use the offline
+   * demo runner" beats anything generic validation can say. Boot enforcing them
+   * would also break the two configurations that must keep working: demo mode,
+   * and a dev server started before its model key is filled in.
+   *
+   * Defaults to `true`: the whole-environment check, which is the contract this
+   * function was introduced with and the one its tests pin. Nothing in the
+   * server passes it today — the server always opts out.
+   */
+  requireCapabilities?: boolean;
+};
+
 /** Parse the full server environment. Pure: no `process.env`, no throw, no log. */
-export function parseServerEnv(source: EnvSource): ParseResult<ServerEnv> {
+export function parseServerEnv(
+  source: EnvSource,
+  options: ServerParseOptions = {},
+): ParseResult<ServerEnv> {
   const normalized = normalize(source);
   const result = serverSchema.safeParse(normalized);
-  const conditional = conditionalProblems(normalized);
+  const conditional =
+    options.requireCapabilities === false ? [] : conditionalProblems(normalized);
   if (!result.success) {
     return {
       ok: false,
@@ -178,6 +204,24 @@ export function parseServerEnv(source: EnvSource): ParseResult<ServerEnv> {
     };
   }
   if (conditional.length > 0) return { ok: false, problems: conditional };
+  return { ok: true, env: result.data };
+}
+
+/**
+ * Parse only the capability-gated variables — everything except core. Nothing
+ * here is ever required, so this succeeds on an empty environment; it validates
+ * the shape of whatever *is* set. See `capabilityVariables` for why the slice
+ * exists.
+ */
+export function parseCapabilityEnv(source: EnvSource): ParseResult<CapabilityEnv> {
+  const normalized = normalize(source);
+  const result = capabilitySchema.safeParse(normalized);
+  if (!result.success) {
+    return {
+      ok: false,
+      problems: toProblems(capabilityVariables, normalized, result.error),
+    };
+  }
   return { ok: true, env: result.data };
 }
 

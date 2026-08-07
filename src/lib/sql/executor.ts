@@ -5,6 +5,7 @@
  * (in-process offline dev DB for the TUI / evals). All safety limits — read-only
  * guard, statement timeout, row cap, size cap — are applied consistently here.
  */
+import { capabilityEnv } from "../../env/capabilities";
 import type {
   DescribeTableOutput,
   RunSqlResult,
@@ -27,17 +28,13 @@ export type ExecutorConfig = {
 };
 
 export function loadExecutorConfig(): ExecutorConfig {
-  const num = (name: string, fallback: number) => {
-    const raw = process.env[name];
-    const parsed = raw ? Number(raw) : NaN;
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-  };
+  const env = capabilityEnv();
   return {
-    statementTimeoutMs: num("SQL_STATEMENT_TIMEOUT_MS", 10_000),
-    maxRows: num("SQL_MAX_ROWS", 500),
+    statementTimeoutMs: env.SQL_STATEMENT_TIMEOUT_MS,
+    maxRows: env.SQL_MAX_ROWS,
     // Keep persisted table artifacts bounded: capped rows are stored verbatim
     // with SQL, title, and metadata.
-    maxResultBytes: num("SQL_MAX_RESULT_BYTES", 700_000),
+    maxResultBytes: env.SQL_MAX_RESULT_BYTES,
   };
 }
 

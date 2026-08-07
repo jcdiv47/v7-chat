@@ -11,6 +11,7 @@ import { registerTelemetry } from "ai";
 import { LangfuseSpanProcessor } from "@langfuse/otel";
 import { LangfuseVercelAiSdkIntegration } from "@langfuse/vercel-ai-sdk";
 import { NodeSDK } from "@opentelemetry/sdk-node";
+import { serverEnv } from "../env/server";
 import { getLangfuseRelease } from "../lib/app-version";
 import { hasRealModel } from "../lib/models/registry";
 
@@ -19,16 +20,12 @@ const globalStore = globalThis as unknown as {
   __v7Telemetry?: { processor: LangfuseSpanProcessor } | null;
 };
 
-function env(name: string): string | undefined {
-  const value = process.env[name];
-  return value && value.length > 0 ? value : undefined;
-}
-
 function langfuseEnabled(): boolean {
+  const env = serverEnv();
   return (
     hasRealModel() &&
-    env("LANGFUSE_PUBLIC_KEY") != null &&
-    env("LANGFUSE_SECRET_KEY") != null
+    env.LANGFUSE_PUBLIC_KEY != null &&
+    env.LANGFUSE_SECRET_KEY != null
   );
 }
 
@@ -45,13 +42,14 @@ export function initTelemetry(): boolean {
     return false;
   }
 
+  const env = serverEnv();
   const processor = new LangfuseSpanProcessor({
-    publicKey: env("LANGFUSE_PUBLIC_KEY"),
-    secretKey: env("LANGFUSE_SECRET_KEY"),
-    baseUrl: env("LANGFUSE_BASE_URL"),
+    publicKey: env.LANGFUSE_PUBLIC_KEY,
+    secretKey: env.LANGFUSE_SECRET_KEY,
+    baseUrl: env.LANGFUSE_BASE_URL,
     // Passed explicitly: the SDK's own auto-read variable is named
     // LANGFUSE_TRACING_ENVIRONMENT, which we don't rely on.
-    environment: env("LANGFUSE_ENVIRONMENT"),
+    environment: env.LANGFUSE_ENVIRONMENT,
     release: getLangfuseRelease(),
   });
   new NodeSDK({ spanProcessors: [processor] }).start();

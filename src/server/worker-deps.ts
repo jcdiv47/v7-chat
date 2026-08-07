@@ -5,6 +5,7 @@
  * See docs/specs/02 → Tool Context.
  */
 import { and, eq } from "drizzle-orm";
+import { serverEnv } from "../env/server";
 import type { AgentToolDeps, SqlColumn } from "../lib/agent/types";
 import { createPgExecutor } from "../lib/sql/pg-executor";
 import type { PostgresExecutor } from "../lib/sql/executor";
@@ -28,7 +29,9 @@ let _executor: PostgresExecutor | null = null;
 
 function executor(): PostgresExecutor {
   if (_executor) return _executor;
-  const url = process.env.INTERMEDIATE_DATABASE_URL;
+  // Lazy: the analytical database is a capability, and demo mode runs a whole
+  // agent turn without one. Boot must not require it.
+  const url = serverEnv().INTERMEDIATE_DATABASE_URL;
   if (!url) {
     throw new Error(
       "INTERMEDIATE_DATABASE_URL is not set. Point it at the read-only " +

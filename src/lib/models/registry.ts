@@ -10,6 +10,7 @@
  */
 import { wrapLanguageModel, type LanguageModel } from "ai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { capabilityEnv } from "../../env/capabilities";
 import type { AgentProviderOptions } from "../agent/run";
 import type { ModelAlias, ReasoningEffort } from "../agent/types";
 import { langfuseCostMiddleware } from "./langfuse-cost";
@@ -38,71 +39,46 @@ export type ModelDef = {
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
-function env(name: string): string | undefined {
-  const value = process.env[name];
-  return value && value.length > 0 ? value : undefined;
-}
-
-const REASONING_EFFORTS: readonly ReasoningEffort[] = [
-  "provider-default",
-  "none",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-];
-
-function envReasoning(name: string, fallback: ReasoningEffort): ReasoningEffort {
-  const value = env(name);
-  if (!value) return fallback;
-  if ((REASONING_EFFORTS as readonly string[]).includes(value)) {
-    return value as ReasoningEffort;
-  }
-  console.warn(
-    `[models] Ignoring ${name}="${value}" — expected one of: ${REASONING_EFFORTS.join(", ")}.`,
-  );
-  return fallback;
-}
-
 /**
  * Default alias → model mapping. Every ID is overridable with a `MODEL_*` env
- * var so aliases can be re-benchmarked without code changes. These defaults are
- * long-lived OpenRouter slugs; confirm/tune them during implementation.
+ * var so aliases can be re-benchmarked without code changes; the defaults and
+ * the set of accepted reasoning efforts are declared in src/env/variables.ts,
+ * which is why neither appears here.
  */
 function buildRegistry(): Record<ModelAlias, ModelDef> {
+  const env = capabilityEnv();
   return {
     fast: {
       alias: "fast",
       displayName: "Fast",
-      modelId: env("MODEL_FAST") ?? "openai/gpt-oss-120b:nitro",
+      modelId: env.MODEL_FAST,
       temperature: 0.7,
       maxOutputTokens: 2048,
-      reasoning: envReasoning("MODEL_FAST_REASONING", "low"),
+      reasoning: env.MODEL_FAST_REASONING,
     },
     analyst: {
       alias: "analyst",
       displayName: "Analyst",
-      modelId: env("MODEL_ANALYST") ?? "z-ai/glm-5.2:nitro",
+      modelId: env.MODEL_ANALYST,
       temperature: 0.7,
       maxOutputTokens: 4096,
-      reasoning: envReasoning("MODEL_ANALYST_REASONING", "low"),
+      reasoning: env.MODEL_ANALYST_REASONING,
     },
     sql: {
       alias: "sql",
       displayName: "SQL",
-      modelId: env("MODEL_SQL") ?? "moonshotai/kimi-k2.6",
+      modelId: env.MODEL_SQL,
       temperature: 0.5,
       maxOutputTokens: 2048,
-      reasoning: envReasoning("MODEL_SQL_REASONING", "low"),
+      reasoning: env.MODEL_SQL_REASONING,
     },
     summarizer: {
       alias: "summarizer",
       displayName: "Summarizer",
-      modelId: env("MODEL_SUMMARIZER") ?? "openai/gpt-oss-120b:nitro",
+      modelId: env.MODEL_SUMMARIZER,
       temperature: 0.7,
       maxOutputTokens: 1024,
-      reasoning: envReasoning("MODEL_SUMMARIZER_REASONING", "low"),
+      reasoning: env.MODEL_SUMMARIZER_REASONING,
     },
   };
 }
@@ -111,8 +87,11 @@ let _provider: ReturnType<typeof createOpenAICompatible> | null = null;
 
 function getProvider() {
   if (_provider) return _provider;
-  const apiKey = env("OPENROUTER_API_KEY");
-  if (!apiKey) {
+  const env = capabilityEnv();
+  // Lazy on purpose: the key is gated on the model-provider capability, so this
+  // is the first point that genuinely needs it, and this message says more
+  // about the fix than generic validation could.
+  if (!env.OPENROUTER_API_KEY) {
     throw new Error(
       "OPENROUTER_API_KEY is not set. Set it in the server environment " +
         "(.env.local / production variables), or set MODEL_PROVIDER=mock to use the offline demo runner.",
@@ -121,11 +100,11 @@ function getProvider() {
   _provider = createOpenAICompatible({
     name: "openrouter",
     baseURL: OPENROUTER_BASE_URL,
-    apiKey,
+    apiKey: env.OPENROUTER_API_KEY,
     headers: {
       // Attribution headers recommended by OpenRouter.
-      "HTTP-Referer": env("OPENROUTER_APP_URL") ?? "http://localhost:3000",
-      "X-Title": env("OPENROUTER_APP_TITLE") ?? "v7 Business Analyst",
+      "HTTP-Referer": env.OPENROUTER_APP_URL,
+      "X-Title": env.OPENROUTER_APP_TITLE,
     },
   });
   return _provider;
@@ -134,7 +113,8 @@ function getProvider() {
 /** Whether a real model provider is configured. When false, callers fall back
  * to the offline demo runner so the UI/streaming stack is still exercisable. */
 export function hasRealModel(): boolean {
-  return env("MODEL_PROVIDER") !== "mock" && !!env("OPENROUTER_API_KEY");
+  const env = capabilityEnv();
+  return env.MODEL_PROVIDER !== "mock" && !!env.OPENROUTER_API_KEY;
 }
 
 export function resolveModelDef(alias: ModelAlias): ModelDef {

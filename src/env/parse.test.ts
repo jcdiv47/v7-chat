@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatProblems,
   parseAppDatabaseEnv,
+  parseCapabilityEnv,
   parsePublicEnv,
   parseScopedEnv,
   parseSeedEnv,
@@ -536,5 +537,103 @@ describe("parseAppDatabaseEnv", () => {
   it("rejects a malformed URL rather than falling back", () => {
     const problems = expectProblems(parseAppDatabaseEnv({ DATABASE_URL: "not-a-url" }));
     expect(variablesIn(problems)).toEqual(["DATABASE_URL"]);
+  });
+});
+
+/**
+ * What the server does at boot: core is required, but the capability
+ * requirements stay with the call sites that need the capability, so demo mode
+ * and a model-less dev server both still boot.
+ */
+describe("parseServerEnv with requireCapabilities: false", () => {
+  const opts = { requireCapabilities: false } as const;
+
+  it("accepts a live provider with no model key and no analytical database", () => {
+    const env = expectOk(
+      parseServerEnv({ ...MOCK_ENV, MODEL_PROVIDER: "openrouter" }, opts),
+    );
+    expect(env.MODEL_PROVIDER).toBe("openrouter");
+    expect(env.OPENROUTER_API_KEY).toBeUndefined();
+    expect(env.INTERMEDIATE_DATABASE_URL).toBeUndefined();
+  });
+
+  it("still requires every core variable, and reports them together", () => {
+    const problems = expectProblems(parseServerEnv({}, opts));
+    expect(variablesIn(problems)).toEqual(
+      expect.arrayContaining([
+        "DATABASE_URL",
+        "CLERK_SECRET_KEY",
+        "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+      ]),
+    );
+  });
+
+  it("still rejects a typo'd MODEL_PROVIDER rather than falling back to live", () => {
+    const problems = expectProblems(
+      parseServerEnv({ ...MOCK_ENV, MODEL_PROVIDER: "mocked" }, opts),
+    );
+    expect(variablesIn(problems)).toEqual(["MODEL_PROVIDER"]);
+  });
+
+  it("still rejects a non-numeric DRAIN_GRACE_MS", () => {
+    const problems = expectProblems(
+      parseServerEnv({ ...MOCK_ENV, DRAIN_GRACE_MS: "soon" }, opts),
+    );
+    expect(variablesIn(problems)).toEqual(["DRAIN_GRACE_MS"]);
+  });
+
+  it("parses the same values as a full parse when everything is set", () => {
+    expect(expectOk(parseServerEnv(LIVE_ENV, opts))).toEqual(
+      expectOk(parseServerEnv(LIVE_ENV)),
+    );
+  });
+});
+
+/**
+ * The slice read by `src/lib/`, which is shared with the TUI and the eval
+ * runner — processes that have no app database and no Clerk keys at all.
+ */
+describe("parseCapabilityEnv", () => {
+  it("parses an entirely empty environment, applying every default", () => {
+    const env = expectOk(parseCapabilityEnv({}));
+    expect(env.MODEL_PROVIDER).toBe("openrouter");
+    expect(env.MODEL_ANALYST).toBe("z-ai/glm-5.2:nitro");
+    expect(env.MODEL_ANALYST_REASONING).toBe("low");
+    expect(env.OPENROUTER_APP_URL).toBe("http://localhost:3000");
+    expect(env.OPENROUTER_APP_TITLE).toBe("v7 Business Analyst");
+    expect(env.SQL_STATEMENT_TIMEOUT_MS).toBe(10_000);
+    expect(env.SQL_MAX_ROWS).toBe(500);
+    expect(env.SQL_MAX_RESULT_BYTES).toBe(700_000);
+    expect(env.DRAIN_GRACE_MS).toBe(25_000);
+  });
+
+  it("cannot expose a core variable, even when one is set", () => {
+    const env = expectOk(parseCapabilityEnv(LIVE_ENV)) as Record<string, unknown>;
+    expect(env).not.toHaveProperty("DATABASE_URL");
+    expect(env).not.toHaveProperty("CLERK_SECRET_KEY");
+    expect(env).not.toHaveProperty("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY");
+  });
+
+  it("never requires a model key, whatever the provider", () => {
+    expect(
+      expectOk(parseCapabilityEnv({ MODEL_PROVIDER: "openrouter" })).OPENROUTER_API_KEY,
+    ).toBeUndefined();
+  });
+
+  it("validates the capability variables it does carry", () => {
+    expect(variablesIn(expectProblems(parseCapabilityEnv({ SQL_MAX_ROWS: "-3" })))).toEqual([
+      "SQL_MAX_ROWS",
+    ]);
+    expect(
+      variablesIn(expectProblems(parseCapabilityEnv({ MODEL_PROVIDER: "mocked" }))),
+    ).toEqual(["MODEL_PROVIDER"]);
+  });
+
+  it("agrees with the full parse on every value it shares", () => {
+    const full = expectOk(parseServerEnv(LIVE_ENV)) as Record<string, unknown>;
+    const capability = expectOk(parseCapabilityEnv(LIVE_ENV)) as Record<string, unknown>;
+    for (const [name, value] of Object.entries(capability)) {
+      expect(full[name], name).toEqual(value);
+    }
   });
 });
