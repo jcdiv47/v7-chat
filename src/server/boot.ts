@@ -6,6 +6,7 @@
  */
 import { serverEnv } from "../env/server";
 import { hasRealModel } from "../lib/models/registry";
+import { formatBootCapabilityStatus } from "./boot-status";
 import { runMigrations } from "./db/migrate";
 import { getDb } from "./db/client";
 import { backfillThreadTitleSearchTerms } from "./search/title-index";
@@ -38,23 +39,18 @@ export async function bootServer(): Promise<void> {
 
   // Which optional capabilities came up, stated once. Every one of these can
   // legitimately be off, so "the agent is not answering" needs a line saying
-  // which of them this process actually has.
-  //
-  // The model line names the configured provider *and* what runs, because those
-  // disagree in the case worth catching: MODEL_PROVIDER=openrouter with no key
-  // falls back to the demo agent, which looks like a working deploy answering
-  // nonsense. "openrouter, but no key — running the offline demo agent" is the
-  // one line that explains it.
-  const model = hasRealModel()
-    ? env.MODEL_PROVIDER
-    : env.MODEL_PROVIDER === "mock"
-      ? "mock (offline demo agent)"
-      : `${env.MODEL_PROVIDER}, but OPENROUTER_API_KEY is not set — running the offline demo agent`;
+  // which of them this process actually has. The analytical status also names
+  // the pglite boundary: it is the offline database for TUI/evals, not a silent
+  // fallback in the web runtime.
+  const capabilities = formatBootCapabilityStatus({
+    tracing,
+    modelProvider: env.MODEL_PROVIDER,
+    realModel: hasRealModel(),
+    analyticalDatabaseConfigured: env.INTERMEDIATE_DATABASE_URL !== undefined,
+  });
 
   console.log(
     `[boot] migrations applied, indexed ${indexedTitles} missing thread titles, ` +
-      `sweeper started, Langfuse tracing ${tracing ? "on" : "off"}, ` +
-      `model provider ${model}, ` +
-      `analytical database ${env.INTERMEDIATE_DATABASE_URL ? "configured" : "not configured"}`,
+      `sweeper started, ${capabilities}`,
   );
 }
