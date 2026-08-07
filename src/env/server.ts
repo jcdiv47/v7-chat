@@ -6,8 +6,9 @@
  * bundle. The boundary is enforced by tooling rather than by review.
  *
  * That marker also means this file is importable only from a Next.js bundle:
- * plain Node entry points (the TUI, the eval runner, the seed script) must call
- * `parseServerEnv` from ./parse directly with whatever source they load.
+ * plain Node entry points (the TUI, the eval runner, the seed script, the
+ * Drizzle config) go through ./node instead, which validates the capabilities
+ * each of them names rather than the whole server schema.
  */
 import "server-only";
 import { formatProblems, parseServerEnv, type ServerEnv } from "./parse";

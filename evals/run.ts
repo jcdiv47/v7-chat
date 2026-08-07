@@ -20,16 +20,9 @@ import { getModel, hasRealModel, openrouterProviderOptions, resolveModelDef } fr
 import { getAppVersion } from "../src/lib/app-version";
 import type { AgentToolDeps, AnalysisRuntimeContext } from "../src/lib/agent/types";
 import type { PostgresExecutor } from "../src/lib/sql/executor";
+import { loadAgentCliEnv } from "../src/env/node";
 
 const C = { reset: "\x1b[0m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m", gray: "\x1b[90m", bold: "\x1b[1m" };
-
-function loadEnv() {
-  try {
-    (process as unknown as { loadEnvFile: (p: string) => void }).loadEnvFile(".env.local");
-  } catch {
-    /* ambient env */
-  }
-}
 
 type Capture = {
   sql: string[];
@@ -119,11 +112,13 @@ async function runOffline(executor: PostgresExecutor) {
 }
 
 async function main() {
-  loadEnv();
+  const env = loadAgentCliEnv();
   const limit = Number(process.argv[2]) || EVAL_PROMPTS.length;
   const prompts = EVAL_PROMPTS.slice(0, limit);
   const skills = createDiskSkillSource("agent-skills");
-  const { executor, kind } = await createNodeExecutor();
+  const { executor, kind } = await createNodeExecutor({
+    intermediateDatabaseUrl: env.INTERMEDIATE_DATABASE_URL,
+  });
 
   if (!hasRealModel()) {
     await runOffline(executor);

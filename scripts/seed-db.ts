@@ -9,23 +9,13 @@
  */
 import { Client } from "pg";
 import { DATA_SQL, SCHEMA_SQL } from "../src/lib/sql/seed";
-
-function loadEnv() {
-  try {
-    (process as unknown as { loadEnvFile: (p: string) => void }).loadEnvFile(".env.local");
-  } catch {
-    /* ambient env */
-  }
-}
+import { loadSeedEnv } from "../src/env/node";
 
 async function main() {
-  loadEnv();
-  const url = process.env.SEED_DATABASE_URL ?? process.env.INTERMEDIATE_DATABASE_URL;
-  if (!url) {
-    console.error("Set SEED_DATABASE_URL or INTERMEDIATE_DATABASE_URL to a writable Postgres URL.");
-    process.exit(1);
-  }
-  const client = new Client({ connectionString: url });
+  // The SEED_DATABASE_URL → INTERMEDIATE_DATABASE_URL precedence is declared in
+  // src/env/variables.ts (`seedDatabaseUrlChain`), not decided here.
+  const { seedDatabaseUrl } = loadSeedEnv();
+  const client = new Client({ connectionString: seedDatabaseUrl });
   await client.connect();
   try {
     await client.query(SCHEMA_SQL);
@@ -42,6 +32,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  // The message, not the object: a configuration problem is a list of lines an
+  // operator should act on, and a stack trace through the env module buries it.
+  console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 });

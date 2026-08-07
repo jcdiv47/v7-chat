@@ -11,8 +11,9 @@ Configuration splits into two surfaces that never merge.
 **Host process configuration** is read by a Node process running on a developer
 machine, from `.env.local` (template: [`.env.example`](../.env.example)).
 `next dev` and `next build` load that file implicitly; the TUI, the eval runner
-and the seed script load it explicitly with `process.loadEnvFile(".env.local")`
-and fall back to the ambient environment. In production these same variables
+and the seed script load it explicitly through `src/env/node.ts` and fall back
+to the ambient environment. The Drizzle config deliberately does not — drizzle-kit
+does its own env loading, and a second loader would change which file wins. In production these same variables
 reach the app process as container environment, but they are set by
 `docker-compose.prod.yml`, not by a file the app reads.
 
@@ -142,7 +143,7 @@ default applies; the rest are forwarded as `reasoning_effort`.
 
 | Variable | Required | Default | Read by | Notes |
 | --- | --- | --- | --- | --- |
-| `INTERMEDIATE_DATABASE_URL` | Yes for the web agent; optional for the TUI and evals | none | `src/server/worker-deps.ts`, `src/lib/sql/pglite-executor.ts`, `scripts/seed-db.ts` | Read-only role against the business data (`aiqa.cities`, `aiqa.malls`, `aiqa.stores`). **When unset, the TUI and eval runner fall back to an in-process pglite database seeded with the sample dataset**, so both run with zero setup; the web worker has no such fallback and throws. Dev: `docker compose up -d intermediate-db` (port 5434). |
+| `INTERMEDIATE_DATABASE_URL` | Yes for the web agent; optional for the TUI and evals | none | `src/server/worker-deps.ts`, `tui/index.ts`, `evals/run.ts`, `scripts/seed-db.ts` | Read-only role against the business data (`aiqa.cities`, `aiqa.malls`, `aiqa.stores`). **When unset, the TUI and eval runner fall back to an in-process pglite database seeded with the sample dataset**, so both run with zero setup; the web worker has no such fallback and throws. Dev: `docker compose up -d intermediate-db` (port 5434). |
 | `SEED_DATABASE_URL` | No | falls back to `INTERMEDIATE_DATABASE_URL` | `scripts/seed-db.ts` | A *writable* admin connection for `npm run seed`. The app itself should always use the read-only role. |
 
 ### SQL guardrails

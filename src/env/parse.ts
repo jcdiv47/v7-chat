@@ -12,10 +12,14 @@
  */
 import { z } from "zod";
 import {
+  DEV_DATABASE_URL,
   modelProviders,
   publicVariables,
+  seedDatabaseUrlChain,
   serverVariables,
+  type Capability,
   type Declaration,
+  type ServerVariableName,
   type VariableTable,
 } from "./variables";
 
@@ -121,9 +125,9 @@ function toProblems(
  * behind them.
  *
  * Note that this is stricter than what the running app does today, where an
- * absent `OPENROUTER_API_KEY` silently falls back to the demo agent. Nothing
- * imports this module yet, so no behaviour changes here; the call sites that
- * move over later choose which capabilities they need.
+ * absent `OPENROUTER_API_KEY` silently falls back to the demo agent. It applies
+ * to `parseServerEnv` only: the scoped parses below deliberately skip it, since
+ * a consumer that names its capabilities has already said what it requires.
  */
 function conditionalProblems(normalized: Record<string, string>): EnvProblem[] {
   const provider = normalized.MODEL_PROVIDER;
@@ -188,6 +192,119 @@ export function parsePublicEnv(source: EnvSource): ParseResult<PublicEnv> {
     };
   }
   return { ok: true, env: result.data };
+}
+
+/**
+ * Scoped parses: one capability's worth of environment, for the consumers that
+ * are not the Next.js server.
+ *
+ * The TUI, the eval runner, the seed script and the Drizzle config each use a
+ * slice of the environment, and running the full server parse in them would be
+ * wrong — the TUI must keep starting with no Clerk keys present, because it
+ * never serves a page.
+ *
+ * Two deliberate differences from `parseServerEnv`:
+ *
+ * - Variables outside the requested capabilities are neither required nor
+ *   validated. A broken `DRAIN_GRACE_MS` is the server's problem, not the TUI's.
+ * - The conditional requirements are *not* applied. They express what the server
+ *   needs in order to serve; a scoped consumer says what it needs by naming its
+ *   capabilities. This is what preserves the offline paths: with no
+ *   `OPENROUTER_API_KEY` the TUI still runs its slash commands, and with no
+ *   `INTERMEDIATE_DATABASE_URL` it still falls back to the seeded pglite
+ *   database — that fallback is now the schema's `.optional()` plus the one
+ *   definition of "empty" above, rather than a bare truthiness check.
+ */
+type VariableNamesOf<C extends Capability> = {
+  [K in ServerVariableName]: (typeof serverVariables)[K]["capability"] extends C
+    ? K
+    : never;
+}[ServerVariableName];
+
+export type ScopedEnv<C extends Capability> = Pick<ServerEnv, VariableNamesOf<C>>;
+
+function subTable(names: readonly ServerVariableName[]): VariableTable {
+  return Object.fromEntries(names.map((name) => [name, serverVariables[name]]));
+}
+
+function parseTable<T>(table: VariableTable, source: EnvSource): ParseResult<T> {
+  const normalized = normalize(source);
+  const result = objectSchema(table).safeParse(normalized);
+  if (!result.success) {
+    return { ok: false, problems: toProblems(table, normalized, result.error) };
+  }
+  return { ok: true, env: result.data as T };
+}
+
+/** Parse only the variables belonging to `capabilities`. Pure, as above. */
+export function parseScopedEnv<const C extends readonly Capability[]>(
+  capabilities: C,
+  source: EnvSource,
+): ParseResult<ScopedEnv<C[number]>> {
+  const names = (Object.keys(serverVariables) as ServerVariableName[]).filter(
+    (name) => capabilities.includes(serverVariables[name].capability),
+  );
+  return parseTable<ScopedEnv<C[number]>>(subTable(names), source);
+}
+
+/**
+ * The seed script's one requirement: a writable connection, taken from the
+ * declared fallback chain.
+ *
+ * Selection happens before validation, exactly as the `??` it replaces did:
+ * the first link that is *set* wins, and only that one is validated. A stale
+ * `INTERMEDIATE_DATABASE_URL` therefore cannot block a good
+ * `SEED_DATABASE_URL` — the script never used the fallback in that case, so
+ * neither does this. A malformed *chosen* URL is still rejected, which is the
+ * point: a typo'd admin URL must fail rather than reach a driver.
+ */
+export function parseSeedEnv(
+  source: EnvSource,
+): ParseResult<{ seedDatabaseUrl: string }> {
+  const normalized = normalize(source);
+  const chosen = seedDatabaseUrlChain.find(
+    (name) => normalized[name] !== undefined,
+  );
+  if (chosen) {
+    const result = parseTable<Record<string, string>>(
+      subTable([chosen]),
+      source,
+    );
+    return result.ok
+      ? { ok: true, env: { seedDatabaseUrl: result.env[chosen] } }
+      : result;
+  }
+  // One problem, not one per link: the chain is a single missing value, and
+  // naming its head plus the fallback is what an operator needs to act.
+  const [head, ...fallbacks] = seedDatabaseUrlChain;
+  return {
+    ok: false,
+    problems: [
+      {
+        variable: head,
+        expected: `${serverVariables[head].expectation}, or ${fallbacks.join(" or ")} as a fallback`,
+        received: "(not set)",
+      },
+    ],
+  };
+}
+
+/**
+ * The app database URL alone, defaulted to the dev database. Only the Drizzle
+ * CLI uses this: the server has no default and must fail without one, but
+ * `drizzle-kit generate` runs on a developer's machine against the Compose
+ * database. See `DEV_DATABASE_URL`.
+ */
+export function parseAppDatabaseEnv(
+  source: EnvSource,
+): ParseResult<{ DATABASE_URL: string }> {
+  const table: VariableTable = {
+    DATABASE_URL: {
+      ...serverVariables.DATABASE_URL,
+      schema: serverVariables.DATABASE_URL.schema.default(DEV_DATABASE_URL),
+    },
+  };
+  return parseTable<{ DATABASE_URL: string }>(table, source);
 }
 
 /**

@@ -110,16 +110,23 @@ export async function createPgliteExecutor(
 }
 
 /**
- * Pick the right executor for a Node process (TUI / evals): the real database if
- * INTERMEDIATE_DATABASE_URL is set, otherwise the seeded offline pglite DB.
+ * Pick the right executor for a Node process (TUI / evals): the real database
+ * when the caller has an analytical database URL, otherwise the seeded offline
+ * pglite DB.
+ *
+ * The URL is a parameter rather than a `process.env` read so that "unset means
+ * pglite" is decided by the environment module — which has one definition of
+ * empty, and declares the variable optional — instead of by a truthiness check
+ * here. Callers pass `env.INTERMEDIATE_DATABASE_URL` straight through.
  */
-export async function createNodeExecutor(
-  cfgOverride?: Partial<ExecutorConfig>,
-): Promise<{ executor: PostgresExecutor; kind: "postgres" | "pglite" }> {
-  const url = process.env.INTERMEDIATE_DATABASE_URL;
-  if (url && url.length > 0) {
+export async function createNodeExecutor(options: {
+  intermediateDatabaseUrl: string | undefined;
+  config?: Partial<ExecutorConfig>;
+}): Promise<{ executor: PostgresExecutor; kind: "postgres" | "pglite" }> {
+  const { intermediateDatabaseUrl: url, config } = options;
+  if (url !== undefined) {
     const { createPgExecutor } = await import("./pg-executor");
-    return { executor: createPgExecutor(url, cfgOverride), kind: "postgres" };
+    return { executor: createPgExecutor(url, config), kind: "postgres" };
   }
-  return { executor: await createPgliteExecutor(cfgOverride), kind: "pglite" };
+  return { executor: await createPgliteExecutor(config), kind: "pglite" };
 }

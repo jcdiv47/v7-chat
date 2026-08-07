@@ -9,11 +9,15 @@
 import { describe, expect, it } from "vitest";
 import {
   formatProblems,
+  parseAppDatabaseEnv,
   parsePublicEnv,
+  parseScopedEnv,
+  parseSeedEnv,
   parseServerEnv,
   type EnvProblem,
   type ParseResult,
 } from "./parse";
+import { DEV_DATABASE_URL } from "./variables";
 
 const LIVE_ENV = {
   DATABASE_URL: "postgres://v7:v7@localhost:5433/v7_chat",
@@ -392,5 +396,145 @@ describe("parsePublicEnv", () => {
     const env = expectOk(parsePublicEnv(LIVE_ENV)) as Record<string, unknown>;
     expect(env.CLERK_SECRET_KEY).toBeUndefined();
     expect(env.DATABASE_URL).toBeUndefined();
+  });
+});
+
+/** What the TUI and the eval runner ask for. */
+const AGENT_CAPABILITIES = ["model-provider", "analytical-database"] as const;
+
+describe("parseScopedEnv", () => {
+  it("parses the agent capabilities with no Clerk keys and no app database", () => {
+    const env = expectOk(parseScopedEnv(AGENT_CAPABILITIES, {}));
+
+    expect(env.MODEL_PROVIDER).toBe("openrouter");
+    expect(env.OPENROUTER_API_KEY).toBeUndefined();
+    expect(env.INTERMEDIATE_DATABASE_URL).toBeUndefined();
+    expect(env.SQL_MAX_ROWS).toBe(500);
+  });
+
+  it("omits the variables of capabilities it was not asked for", () => {
+    const env = expectOk(
+      parseScopedEnv(AGENT_CAPABILITIES, LIVE_ENV),
+    ) as Record<string, unknown>;
+    expect(env.CLERK_SECRET_KEY).toBeUndefined();
+    expect(env.DATABASE_URL).toBeUndefined();
+  });
+
+  it("ignores invalid variables outside the requested capabilities", () => {
+    const env = expectOk(
+      parseScopedEnv(AGENT_CAPABILITIES, {
+        DATABASE_URL: "not-a-url",
+        DRAIN_GRACE_MS: "soon",
+        INTERMEDIATE_DATABASE_URL: LIVE_ENV.INTERMEDIATE_DATABASE_URL,
+      }),
+    );
+    expect(env.INTERMEDIATE_DATABASE_URL).toBe(LIVE_ENV.INTERMEDIATE_DATABASE_URL);
+  });
+
+  it("still validates the variables it was asked for", () => {
+    const problems = expectProblems(
+      parseScopedEnv(AGENT_CAPABILITIES, {
+        INTERMEDIATE_DATABASE_URL: "postgres://",
+        MODEL_PROVIDER: "mocked",
+      }),
+    );
+    expect(variablesIn(problems).sort()).toEqual([
+      "INTERMEDIATE_DATABASE_URL",
+      "MODEL_PROVIDER",
+    ]);
+  });
+
+  it("does not apply the server's conditional requirements", () => {
+    // The TUI and eval runner run happily with no key and no analytical
+    // database: no model means \\sql-only, no URL means the pglite fallback.
+    const env = expectOk(
+      parseScopedEnv(AGENT_CAPABILITIES, { MODEL_PROVIDER: "openrouter" }),
+    );
+    expect(env.OPENROUTER_API_KEY).toBeUndefined();
+    expect(env.INTERMEDIATE_DATABASE_URL).toBeUndefined();
+  });
+
+  it("treats a whitespace-only analytical URL as absent, so pglite is used", () => {
+    const env = expectOk(
+      parseScopedEnv(AGENT_CAPABILITIES, { INTERMEDIATE_DATABASE_URL: "   " }),
+    );
+    expect(env.INTERMEDIATE_DATABASE_URL).toBeUndefined();
+  });
+});
+
+describe("parseSeedEnv", () => {
+  it("prefers the seed URL over the analytical URL", () => {
+    const env = expectOk(
+      parseSeedEnv({
+        SEED_DATABASE_URL: "postgres://admin:pw@localhost:5434/analytics",
+        INTERMEDIATE_DATABASE_URL: LIVE_ENV.INTERMEDIATE_DATABASE_URL,
+      }),
+    );
+    expect(env.seedDatabaseUrl).toBe("postgres://admin:pw@localhost:5434/analytics");
+  });
+
+  it("falls back to the analytical URL", () => {
+    const env = expectOk(
+      parseSeedEnv({ INTERMEDIATE_DATABASE_URL: LIVE_ENV.INTERMEDIATE_DATABASE_URL }),
+    );
+    expect(env.seedDatabaseUrl).toBe(LIVE_ENV.INTERMEDIATE_DATABASE_URL);
+  });
+
+  it("falls back when the seed URL is whitespace-only", () => {
+    const env = expectOk(
+      parseSeedEnv({
+        SEED_DATABASE_URL: "  ",
+        INTERMEDIATE_DATABASE_URL: LIVE_ENV.INTERMEDIATE_DATABASE_URL,
+      }),
+    );
+    expect(env.seedDatabaseUrl).toBe(LIVE_ENV.INTERMEDIATE_DATABASE_URL);
+  });
+
+  it("names both variables in one problem when neither is set", () => {
+    const problems = expectProblems(parseSeedEnv({}));
+    expect(variablesIn(problems)).toEqual(["SEED_DATABASE_URL"]);
+    expect(formatProblems(problems)).toContain("1 problem");
+    expect(formatProblems(problems)).toContain("INTERMEDIATE_DATABASE_URL");
+  });
+
+  it("ignores a malformed fallback when the seed URL is set", () => {
+    const env = expectOk(
+      parseSeedEnv({
+        SEED_DATABASE_URL: "postgres://admin:pw@localhost:5434/analytics",
+        INTERMEDIATE_DATABASE_URL: "postgres://",
+      }),
+    );
+    expect(env.seedDatabaseUrl).toBe("postgres://admin:pw@localhost:5434/analytics");
+  });
+
+  it("rejects a malformed seed URL rather than falling through to the analytical one", () => {
+    const problems = expectProblems(
+      parseSeedEnv({
+        SEED_DATABASE_URL: "postgres://",
+        INTERMEDIATE_DATABASE_URL: LIVE_ENV.INTERMEDIATE_DATABASE_URL,
+      }),
+    );
+    expect(variablesIn(problems)).toEqual(["SEED_DATABASE_URL"]);
+  });
+
+  it("redacts the URL it rejects", () => {
+    const problems = expectProblems(parseSeedEnv({ SEED_DATABASE_URL: "postgres://" }));
+    expect(formatProblems(problems)).not.toContain("postgres://");
+  });
+});
+
+describe("parseAppDatabaseEnv", () => {
+  it("uses the configured URL", () => {
+    const env = expectOk(parseAppDatabaseEnv({ DATABASE_URL: LIVE_ENV.DATABASE_URL }));
+    expect(env.DATABASE_URL).toBe(LIVE_ENV.DATABASE_URL);
+  });
+
+  it("falls back to the dev default when unset", () => {
+    expect(expectOk(parseAppDatabaseEnv({})).DATABASE_URL).toBe(DEV_DATABASE_URL);
+  });
+
+  it("rejects a malformed URL rather than falling back", () => {
+    const problems = expectProblems(parseAppDatabaseEnv({ DATABASE_URL: "not-a-url" }));
+    expect(variablesIn(problems)).toEqual(["DATABASE_URL"]);
   });
 });

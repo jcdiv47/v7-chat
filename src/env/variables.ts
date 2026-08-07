@@ -7,8 +7,9 @@
  *
  * - `capability` — the layer it belongs to. Core variables are the ones without
  *   which the server cannot serve at all; the rest belong to a capability that
- *   may legitimately be absent. This ticket only *declares* the tags; nothing
- *   enforces them yet.
+ *   may legitimately be absent. A consumer that is not the Next.js server names
+ *   the capabilities it uses and is validated against those alone — see
+ *   `parseScopedEnv`.
  * - `schema` — a Zod schema, carrying the default via `.default()` where the
  *   variable has one, so that no call site has to repeat a fallback value.
  * - `secret` — whether the value must be redacted in error output. The primary
@@ -96,6 +97,15 @@ export const modelProviders = ["openrouter", "mock"] as const;
 const reasoning = () => z.enum(reasoningEfforts).default("low");
 
 const REASONING_EXPECTATION = `one of: ${reasoningEfforts.join(", ")}`;
+
+/**
+ * The app database of a stock `docker compose up -d db`. `DATABASE_URL` itself
+ * carries no default — the server must refuse to boot without it — but the
+ * Drizzle CLI only ever runs on a developer's machine, and used to hardcode
+ * this string in `drizzle.config.ts`. It lives here so there is one answer to
+ * "what is the default dev database URL", applied by `parseAppDatabaseEnv`.
+ */
+export const DEV_DATABASE_URL = "postgres://v7:v7@localhost:5433/v7_chat";
 
 /**
  * The `NEXT_PUBLIC_*` surface. Declared separately because it is the only part
@@ -254,7 +264,8 @@ export const serverVariables = {
     capability: "analytical-database",
     schema: postgresUrl().optional(),
     secret: true,
-    consumer: "src/server/worker-deps.ts, scripts/seed-db.ts",
+    consumer:
+      "src/server/worker-deps.ts, tui/index.ts, evals/run.ts, scripts/seed-db.ts",
     expectation: "a Postgres connection URL (postgres:// or postgresql://)",
   },
   SEED_DATABASE_URL: {
@@ -349,3 +360,15 @@ export const serverVariables = {
 
 export type ServerVariableName = keyof typeof serverVariables;
 export type PublicVariableName = keyof typeof publicVariables;
+
+/**
+ * A value assembled from more than one variable, in precedence order: the first
+ * one set wins. The seed script wants a *writable* connection, which the app's
+ * own read-only analytical login is not, so it looks for a dedicated URL first
+ * and settles for the analytical one. That precedence used to live in the
+ * script; declaring it here is what makes it documented rather than buried.
+ */
+export const seedDatabaseUrlChain = [
+  "SEED_DATABASE_URL",
+  "INTERMEDIATE_DATABASE_URL",
+] as const satisfies readonly ServerVariableName[];

@@ -22,6 +22,7 @@ import { toolLabel, type RenderToolPart } from "../src/lib/agent/stream-parts";
 import { getAppVersion } from "../src/lib/app-version";
 import { createDiskSkillSource } from "../src/lib/skills/disk";
 import { createNodeExecutor } from "../src/lib/sql/pglite-executor";
+import { loadAgentCliEnv } from "../src/env/node";
 import {
   getModel,
   hasRealModel,
@@ -51,15 +52,6 @@ const C = {
   red: "\x1b[31m",
   yellow: "\x1b[33m",
 };
-
-function loadEnv() {
-  try {
-    // Node 20.12+/22 built-in .env loader.
-    (process as unknown as { loadEnvFile: (p: string) => void }).loadEnvFile(".env.local");
-  } catch {
-    // No .env.local; rely on the ambient environment.
-  }
-}
 
 /** Inline readline prompt for one askUser question: pick options by number,
  * anything non-numeric is the free-text "Other" reply. */
@@ -192,9 +184,11 @@ function summarizeTool(part: RenderToolPart): string {
 }
 
 async function main() {
-  loadEnv();
+  const env = loadAgentCliEnv();
   const skills = createDiskSkillSource("agent-skills");
-  const { executor, kind } = await createNodeExecutor();
+  const { executor, kind } = await createNodeExecutor({
+    intermediateDatabaseUrl: env.INTERMEDIATE_DATABASE_URL,
+  });
 
   stdout.write(`${C.bold}v7 Business Analyst — TUI${C.reset}\n`);
   stdout.write(
