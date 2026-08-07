@@ -14,8 +14,8 @@ services:
       app:
         condition: service_healthy
     environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in deploy/aws.env}
-      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in deploy/aws.env}
+      DOMAIN: ${DOMAIN:?Set DOMAIN in your stack env file (deploy/aws.env or deploy/rehearsal.env) — see docs/configuration.md}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in your stack env file (deploy/aws.env or deploy/rehearsal.env) — see docs/configuration.md}
     ports:
       - "80:80"
       - "443:443"
@@ -32,7 +32,7 @@ services:
     build:
       context: .
       args:
-        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in deploy/aws.env}
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY:?Set NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY in your stack env file (deploy/aws.env or deploy/rehearsal.env) — see docs/configuration.md}
         NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
         NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
     restart: unless-stopped
@@ -44,10 +44,10 @@ services:
       intermediate-db:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://v7:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in deploy/aws.env}@app-db:5432/v7_chat
-      INTERMEDIATE_DATABASE_URL: postgresql://v7_readonly:${INTERMEDIATE_READONLY_PASSWORD:?Set INTERMEDIATE_READONLY_PASSWORD in deploy/aws.env}@intermediate-db:5432/analytics
+      DATABASE_URL: postgresql://v7:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in your stack env file (deploy/aws.env or deploy/rehearsal.env) — see docs/configuration.md}@app-db:5432/v7_chat
+      INTERMEDIATE_DATABASE_URL: postgresql://v7_readonly:${INTERMEDIATE_READONLY_PASSWORD:?Set INTERMEDIATE_READONLY_PASSWORD in your stack env file (deploy/aws.env or deploy/rehearsal.env) — see docs/configuration.md}@intermediate-db:5432/analytics
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}
-      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set CLERK_SECRET_KEY in deploy/aws.env}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?Set CLERK_SECRET_KEY in your stack env file (deploy/aws.env or deploy/rehearsal.env) — see docs/configuration.md}
       NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
       NEXT_PUBLIC_CLERK_SIGN_UP_URL: /sign-up
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
@@ -92,7 +92,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: v7
-      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in deploy/aws.env}
+      POSTGRES_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in your stack env file (deploy/aws.env or deploy/rehearsal.env) — see docs/configuration.md}
       POSTGRES_DB: v7_chat
     volumes:
       - app-db-data:/var/lib/postgresql/data
@@ -111,9 +111,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: intermediate_admin
-      POSTGRES_PASSWORD: ${INTERMEDIATE_ADMIN_PASSWORD:?Set INTERMEDIATE_ADMIN_PASSWORD in deploy/aws.env}
+      POSTGRES_PASSWORD: ${INTERMEDIATE_ADMIN_PASSWORD:?Set INTERMEDIATE_ADMIN_PASSWORD in your stack env file (deploy/aws.env or deploy/rehearsal.env) — see docs/configuration.md}
       POSTGRES_DB: analytics
-      INTERMEDIATE_READONLY_PASSWORD: ${INTERMEDIATE_READONLY_PASSWORD:?Set INTERMEDIATE_READONLY_PASSWORD in deploy/aws.env}
+      INTERMEDIATE_READONLY_PASSWORD: ${INTERMEDIATE_READONLY_PASSWORD:?Set INTERMEDIATE_READONLY_PASSWORD in your stack env file (deploy/aws.env or deploy/rehearsal.env) — see docs/configuration.md}
     volumes:
       - intermediate-db-data:/var/lib/postgresql/data
       - ./deploy/postgres/init-intermediate.sh:/docker-entrypoint-initdb.d/10-readonly.sh:ro

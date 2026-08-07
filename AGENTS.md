@@ -61,9 +61,11 @@ print their values back into a transcript or commit them.
 | Host access | SSH key or SSM | 80/443 and 22 inbound, **never** 5432/5433 |
 | Langfuse keys | Langfuse project settings | Optional; tracing is off when unset |
 
-These live in `deploy/aws.env` (production) and `deploy/local.env` (local
+These live in `deploy/aws.env` (production) and `deploy/rehearsal.env` (local
 rehearsal), both gitignored via `/deploy/*.env`. Start from
-`deploy/aws.env.example`.
+`deploy/stack.env.example`, which templates both. Do not rename any of the
+three — the asymmetry is deliberate, and
+`docs/deployment/aws-single-host.md` says why.
 
 ### Ports
 
@@ -97,9 +99,9 @@ so it needs no DNS or public certificate. Use a distinct project name so it
 never shares volumes with the dev databases in `docker-compose.yml`.
 
 ```bash
-cp deploy/aws.env.example deploy/local.env   # DOMAIN=localhost, Clerk *test* keys
-chmod 600 deploy/local.env
-docker compose --env-file deploy/local.env -p v7-chat-local \
+cp deploy/stack.env.example deploy/rehearsal.env   # DOMAIN=localhost, Clerk *test* keys
+chmod 600 deploy/rehearsal.env
+docker compose --env-file deploy/rehearsal.env -p v7-chat-local \
   -f docker-compose.prod.yml -f docker-compose.local.yml up -d --build
 ./scripts/import-intermediate-csv.sh --local
 ```
@@ -112,7 +114,7 @@ Caddy still terminates TLS with its internal CA, but the host may already be
 using 443 — check it from inside the network instead of from the host:
 
 ```bash
-docker compose --env-file deploy/local.env -p v7-chat-local \
+docker compose --env-file deploy/rehearsal.env -p v7-chat-local \
   -f docker-compose.prod.yml -f docker-compose.local.yml \
   exec caddy wget -qO- --no-check-certificate https://localhost/api/health
 ```
@@ -123,7 +125,7 @@ Run from the repository root on the host. Every step is idempotent.
 
 ```bash
 # 1. Configuration
-cp deploy/aws.env.example deploy/aws.env && chmod 600 deploy/aws.env
+cp deploy/stack.env.example deploy/aws.env && chmod 600 deploy/aws.env
 # Fill in every value from the table above.
 
 # 2. Start the stack. Caddy obtains the certificate once DNS resolves; the app

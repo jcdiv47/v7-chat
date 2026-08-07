@@ -6,7 +6,7 @@
 #   Production (deploy/aws.env, docker-compose.prod.yml):
 #     ./scripts/import-intermediate-csv.sh
 #
-#   Local rehearsal of the production stack (deploy/local.env):
+#   Local rehearsal of the production stack (deploy/rehearsal.env):
 #     ./scripts/import-intermediate-csv.sh --local
 #
 #   Dev database from docker-compose.yml, for `npm run dev`:
@@ -41,7 +41,7 @@ service=intermediate-db
 
 case "${1:-}" in
   --local)
-    env_file=deploy/local.env
+    env_file=deploy/rehearsal.env
     project=v7-chat-local
     compose_files=(-f docker-compose.prod.yml -f docker-compose.local.yml)
     shift

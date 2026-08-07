@@ -20,9 +20,9 @@ Run the same images and topology on a workstation before touching an instance.
 without DNS or a public certificate; nothing else changes.
 
 ```bash
-cp deploy/aws.env.example deploy/local.env   # Clerk *test* keys, throwaway passwords
-chmod 600 deploy/local.env                   # DOMAIN=localhost
-docker compose --env-file deploy/local.env -p v7-chat-local \
+cp deploy/stack.env.example deploy/rehearsal.env   # Clerk *test* keys, throwaway passwords
+chmod 600 deploy/rehearsal.env                     # DOMAIN=localhost
+docker compose --env-file deploy/rehearsal.env -p v7-chat-local \
   -f docker-compose.prod.yml -f docker-compose.local.yml up -d --build
 ```
 
@@ -33,7 +33,7 @@ migrations have run. Caddy still terminates TLS with its internal CA, but a
 host may already be using 443 — verify Caddy from inside the network instead:
 
 ```bash
-docker compose --env-file deploy/local.env -p v7-chat-local \
+docker compose --env-file deploy/rehearsal.env -p v7-chat-local \
   -f docker-compose.prod.yml -f docker-compose.local.yml \
   exec caddy wget -qO- --no-check-certificate https://localhost/api/health
 ```
@@ -51,7 +51,7 @@ To rehearse against the small built-in sample dataset instead of the real CSVs:
 ```bash
 npx tsx -e "import {DATA_SQL, SCHEMA_SQL} from './src/lib/sql/seed'; \
   process.stdout.write(SCHEMA_SQL + '\n' + DATA_SQL)" > /tmp/seed.sql
-docker compose --env-file deploy/local.env -p v7-chat-local \
+docker compose --env-file deploy/rehearsal.env -p v7-chat-local \
   -f docker-compose.prod.yml -f docker-compose.local.yml \
   exec -T intermediate-db psql -U intermediate_admin -d analytics \
   -v ON_ERROR_STOP=1 < /tmp/seed.sql
@@ -153,7 +153,7 @@ nc -z -w3 <host> 5432 && echo REACHABLE || echo blocked                 # blocke
 ## 2. Configure production
 
 ```bash
-cp deploy/aws.env.example deploy/aws.env
+cp deploy/stack.env.example deploy/aws.env
 chmod 600 deploy/aws.env
 ```
 
@@ -166,6 +166,13 @@ openssl rand -hex 32
 Hex passwords are recommended because Compose inserts them into PostgreSQL
 connection URLs. Use Clerk production keys. The Clerk publishable key is also
 a Docker build argument because Next.js embeds it in the client bundle.
+
+`deploy/stack.env.example` templates both stack env files. The names are
+deliberately asymmetric: `deploy/aws.env` is named for *where* it runs, because
+only this host ever holds it and it lives outside any checkout, while
+`deploy/rehearsal.env` is named for *what it does*, because it is a local
+artefact. Do not "fix" the asymmetry — renaming the production file would force
+a manual step on the server for no benefit.
 
 ## 3. Start the stack
 

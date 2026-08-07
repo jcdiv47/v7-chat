@@ -1,6 +1,6 @@
 # Local rehearsal of the production stack. Use with docker-compose.prod.yml:
 #
-#   docker compose --env-file deploy/local.env -p v7-chat-local \
+#   docker compose --env-file deploy/rehearsal.env -p v7-chat-local \
 #     -f docker-compose.prod.yml -f docker-compose.local.yml up -d --build
 #
 # The only change is publishing the app port, so the stack can be exercised at
