@@ -88,6 +88,23 @@ so they are configurable on the host surface only.
 Set in `.env.local` (dev) or by `docker-compose.prod.yml` (production).
 "Required" means the reading component throws or exits without it.
 
+### When a bad value is caught
+
+Every variable below is declared once in `src/env/variables.ts` and parsed by
+`src/env/parse.ts`; no call site repeats a default or a fallback.
+
+`bootServer` validates the whole set before it opens a database connection, so
+a malformed value fails the deploy rather than the first request that happens to
+read it, and the error lists **every** problem at once — fixing configuration is
+one pass, not a sequence of restarts. A value that is set but invalid is always
+rejected; nothing silently falls back to a default.
+
+What boot does *not* enforce is whether an optional capability is configured.
+The OpenRouter key and the analytical database URL are checked at first use, by
+code that can say what to do about it, which is why demo mode and a dev server
+started before its model key is filled in both still boot. The boot log names
+which capabilities came up.
+
 ### App database
 
 | Variable | Required | Default | Read by | Notes |
@@ -118,9 +135,9 @@ user id.
 ### Model aliases and reasoning effort
 
 The agent depends on four stable aliases, not on model IDs. The registry reads
-every one of these through a local `env(name)` helper over `process.env[name]`,
-so **`process.env.MODEL_ANALYST` never appears anywhere in the source** — search
-for the bare name (`MODEL_ANALYST`), not for a `process.env.` access.
+these off the parsed environment object, so **`process.env.MODEL_ANALYST` never
+appears anywhere in the source** — search for the bare name (`MODEL_ANALYST`),
+which is declared in `src/env/variables.ts`.
 
 | Variable | Required | Default | Read by | Notes |
 | --- | --- | --- | --- | --- |
@@ -134,9 +151,9 @@ for the bare name (`MODEL_ANALYST`), not for a `process.env.` access.
 | `MODEL_SUMMARIZER_REASONING` | No | `low` | `src/lib/models/registry.ts` | |
 
 Accepted reasoning values: `provider-default`, `none`, `minimal`, `low`,
-`medium`, `high`, `xhigh`. Anything else logs a warning and falls back to the
-default. `provider-default` and `none` send nothing, so the provider's own
-default applies; the rest are forwarded as `reasoning_effort`.
+`medium`, `high`, `xhigh`. Anything else is rejected at boot.
+`provider-default` and `none` send nothing, so the provider's own default
+applies; the rest are forwarded as `reasoning_effort`.
 
 ### Analytical (intermediate) database
 
@@ -147,8 +164,9 @@ default applies; the rest are forwarded as `reasoning_effort`.
 
 ### SQL guardrails
 
-Applied identically by both executors in `src/lib/sql/executor.ts`. Any
-non-numeric or non-positive value falls back to the default.
+Applied identically by both executors in `src/lib/sql/executor.ts`. All three
+are positive whole numbers; a non-numeric or non-positive value is rejected at
+boot rather than falling back to the default.
 
 | Variable | Required | Default | Read by | Notes |
 | --- | --- | --- | --- | --- |
@@ -180,7 +198,7 @@ them in `.env.local`.
 | Variable | Required | Default | Set by | Read by | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `NEXT_MANUAL_SIG_HANDLE` | No | `true` in the container | Dockerfile, `docker-compose.prod.yml` | Next.js | Required for the app's own SIGTERM handler to run; without it Next exits before the drain. |
-| `DRAIN_GRACE_MS` | No | `25000` | `docker-compose.prod.yml` (stack surface) | `src/server/sweeper.ts` | How long in-flight runs get to finish on SIGTERM before they are aborted. Keep the Compose `stop_grace_period` (40s) longer than this. |
+| `DRAIN_GRACE_MS` | No | `25000` | `docker-compose.prod.yml` (stack surface) | `src/server/sweeper.ts` | How long in-flight runs get to finish on SIGTERM before they are aborted. Keep the Compose `stop_grace_period` (40s) longer than this. A non-numeric value is rejected at boot; it used to become `NaN`, which skipped the drain entirely and aborted in-flight runs with nothing in the log to say why. |
 | `NEXT_RUNTIME` | — | — | Next.js | `src/instrumentation.ts` | Set by the framework. The worker boots only on the `nodejs` runtime. |
 | `NODE_ENV`, `PORT`, `HOSTNAME`, `NEXT_TELEMETRY_DISABLED` | — | `production`, `3000`, `0.0.0.0`, `1` | Dockerfile | Next.js | Fixed by the runtime image. |
 

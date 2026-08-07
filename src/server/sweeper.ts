@@ -9,6 +9,7 @@
  *   in production so Next.js doesn't exit before the drain completes.
  */
 import { and, eq, lt } from "drizzle-orm";
+import { serverEnv } from "../env/server";
 import { HEARTBEAT_STALE_MS } from "./constants";
 import { getDb, getPool } from "./db/client";
 import { runs } from "./db/schema";
@@ -79,7 +80,9 @@ async function settleActive(timeoutMs: number): Promise<void> {
 export async function drainAndExit(signalName: string): Promise<void> {
   if (isDraining()) return;
   setDraining();
-  const grace = Number(process.env.DRAIN_GRACE_MS ?? 25_000);
+  // A positive integer, guaranteed: `sleep(NaN)` below would resolve on the
+  // next tick and skip the drain entirely.
+  const grace = serverEnv().DRAIN_GRACE_MS;
   const active = activeRuns();
   console.log(
     `[drain] ${signalName}: ${active.size} in-flight run(s), grace ${grace}ms`,

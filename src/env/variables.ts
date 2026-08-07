@@ -6,9 +6,10 @@
  * Each variable is declared once, with:
  *
  * - `capability` — the layer it belongs to. Core variables are the ones without
- *   which the server cannot serve at all; the rest belong to a capability that
- *   may legitimately be absent. This ticket only *declares* the tags; nothing
- *   enforces them yet.
+ *   which the server cannot serve at all, and the server validates them eagerly
+ *   at boot; the rest belong to a capability that may legitimately be absent,
+ *   and are checked for shape but never for presence. See `capabilityVariables`
+ *   at the foot of this file.
  * - `schema` — a Zod schema, carrying the default via `.default()` where the
  *   variable has one, so that no call site has to repeat a fallback value.
  * - `secret` — whether the value must be redacted in error output. The primary
@@ -349,3 +350,28 @@ export const serverVariables = {
 
 export type ServerVariableName = keyof typeof serverVariables;
 export type PublicVariableName = keyof typeof publicVariables;
+
+export type CoreVariableName = {
+  [K in ServerVariableName]: (typeof serverVariables)[K]["capability"] extends "core"
+    ? K
+    : never;
+}[ServerVariableName];
+
+export type CapabilityVariableName = Exclude<ServerVariableName, CoreVariableName>;
+
+/**
+ * Every variable that is *not* core, derived from the `capability` tags rather
+ * than listed again.
+ *
+ * This slice exists because the modules under `src/lib/` — the model registry,
+ * the app-version resolver, the SQL executor config — are shared with plain Node
+ * entry points (the TUI, the eval runner) that legitimately have no app database
+ * and no Clerk keys. Reading this slice means their reads neither depend on core
+ * configuration nor *can* reach a core secret; core is the Next.js server's
+ * business, and it is validated eagerly at boot. See src/env/capabilities.ts.
+ */
+export const capabilityVariables = Object.fromEntries(
+  Object.entries(serverVariables).filter(
+    ([, declaration]) => declaration.capability !== "core",
+  ),
+) as Pick<typeof serverVariables, CapabilityVariableName>;
