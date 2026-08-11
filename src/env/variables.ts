@@ -305,8 +305,7 @@ export const serverVariables = {
     schema: positiveInt().default(700_000),
     secret: false,
     consumer: "src/lib/sql/executor.ts",
-    notes:
-      "Bounds serialized and persisted table artifacts. Not passed through by production Compose.",
+    notes: "Bounds serialized and persisted table artifacts.",
     expectation: "a positive whole number of bytes",
   },
 

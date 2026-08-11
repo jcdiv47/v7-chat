@@ -214,6 +214,11 @@ function composeDefaultProblems(
   const problems: string[] = [];
   const declarations: StackVariableTable = stackVariables;
   for (const [name, declaration] of Object.entries(declarations)) {
+    if (declaration.reachesApp === "Yes" && !environment.has(name)) {
+      problems.push(
+        `docker-compose.prod.yml omits ${name}, which is declared as reaching the app`,
+      );
+    }
     if (!declaration.pinComposeDefault) continue;
     const expected = `\${${name}:-${declaration.defaultValue}}`;
     if (environment.get(name) !== expected) {

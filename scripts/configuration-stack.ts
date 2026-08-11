@@ -90,6 +90,9 @@ export const stackVariables = {
   MODEL_SUMMARIZER_REASONING: reasoningOverride(),
   SQL_STATEMENT_TIMEOUT_MS: appSchemaPassThrough("Per-query timeout in milliseconds."),
   SQL_MAX_ROWS: appSchemaPassThrough("Maximum rows returned by a query."),
+  SQL_MAX_RESULT_BYTES: appSchemaPassThrough(
+    "Maximum serialized size of a persisted table artifact.",
+  ),
   DRAIN_GRACE_MS: appSchemaPassThrough("Keep below Compose's 40 second stop grace period."),
   APP_VERSION: appOptional("App version used by tracing and command-line output."),
   LANGFUSE_PUBLIC_KEY: appOptional("Tracing requires both Langfuse keys."),

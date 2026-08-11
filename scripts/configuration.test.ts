@@ -8,7 +8,10 @@ import {
   renderStackVariableTable,
   replaceGeneratedTables,
 } from "./configuration";
-import { stackVariables } from "./configuration-stack";
+import {
+  stackVariables,
+  type StackVariableTable,
+} from "./configuration-stack";
 
 describe("configuration reference generation", () => {
   it("documents every declaration supplied by the app schema", () => {
@@ -166,6 +169,16 @@ describe("configuration checks", () => {
     expect(result.problems).toEqual([]);
   });
 
+  it("reports a variable declared as reaching the app when Compose omits it", () => {
+    const result = checkConfiguration(
+      validInput("", ["SQL_MAX_RESULT_BYTES"]),
+    );
+
+    expect(result.problems).toContain(
+      "docker-compose.prod.yml omits SQL_MAX_RESULT_BYTES, which is declared as reaching the app",
+    );
+  });
+
   it("reports a declared production default when Compose diverges", () => {
     const result = checkConfiguration(
       validInput(
@@ -224,14 +237,17 @@ describe("configuration checks", () => {
   });
 
   it("accepts nonstandard but valid indentation", () => {
+    const environment = validComposeEnvironment("")
+      .split("\n")
+      .map((line) => `            ${line.trimStart()}`)
+      .join("\n");
     const result = checkConfiguration({
       ...validInput(""),
       composeFile: [
         "services:",
         "    app:",
         "        environment:",
-        "            SQL_MAX_ROWS: ${SQL_MAX_ROWS:-}",
-        "            LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
+        environment,
       ].join("\n"),
     });
 
@@ -239,7 +255,27 @@ describe("configuration checks", () => {
   });
 });
 
-function validInput(environment: string) {
+function validComposeEnvironment(
+  environment: string,
+  omitted: string[] = [],
+): string {
+  const omittedNames = new Set(omitted);
+  const stackDeclarations: StackVariableTable = stackVariables;
+  const declarations = Object.entries(stackDeclarations)
+    .filter(
+      ([name, declaration]) =>
+        declaration.reachesApp === "Yes" && !omittedNames.has(name),
+    )
+    .map(([name, declaration]) =>
+      declaration.pinComposeDefault
+        ? `      ${name}: \${${name}:-${declaration.defaultValue}}`
+        : `      ${name}: \${${name}:-}`,
+    );
+  if (environment) declarations.push(environment);
+  return declarations.join("\n");
+}
+
+function validInput(environment: string, omitted: string[] = []) {
   return {
     document: [
       "<!-- BEGIN GENERATED HOST CONFIGURATION -->",
@@ -255,6 +291,6 @@ function validInput(environment: string) {
     stackTemplate: Object.keys(stackVariables)
       .map((name) => `${name}=`)
       .join("\n"),
-    composeFile: `services:\n  app:\n    environment:\n${environment}\n`,
+    composeFile: `services:\n  app:\n    environment:\n${validComposeEnvironment(environment, omitted)}\n`,
   };
 }

@@ -141,7 +141,7 @@ entries.
 | `SEED_DATABASE_URL` | analytical-database | No | none | scripts/seed-db.ts | a writable Postgres connection URL |
 | `SQL_STATEMENT_TIMEOUT_MS` | analytical-database | No | `10000` | src/lib/sql/executor.ts | a positive whole number of milliseconds |
 | `SQL_MAX_ROWS` | analytical-database | No | `500` | src/lib/sql/executor.ts | a positive whole number of rows |
-| `SQL_MAX_RESULT_BYTES` | analytical-database | No | `700000` | src/lib/sql/executor.ts | Bounds serialized and persisted table artifacts. Not passed through by production Compose. |
+| `SQL_MAX_RESULT_BYTES` | analytical-database | No | `700000` | src/lib/sql/executor.ts | Bounds serialized and persisted table artifacts. |
 | `APP_VERSION` | tracing | No | none | src/lib/app-version.ts | a version string |
 | `LANGFUSE_PUBLIC_KEY` | tracing | No | none | src/server/telemetry.ts | a Langfuse public key |
 | `LANGFUSE_SECRET_KEY` | tracing | No | none | src/server/telemetry.ts | a Langfuse secret key |
@@ -190,6 +190,7 @@ reference.
 | `MODEL_SUMMARIZER_REASONING` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
 | `SQL_STATEMENT_TIMEOUT_MS` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Per-query timeout in milliseconds. |
 | `SQL_MAX_ROWS` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Maximum rows returned by a query. |
+| `SQL_MAX_RESULT_BYTES` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Maximum serialized size of a persisted table artifact. |
 | `DRAIN_GRACE_MS` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Keep below Compose's 40 second stop grace period. |
 | `APP_VERSION` | stack | No | `empty` | app environment | Yes | App version used by tracing and command-line output. |
 | `LANGFUSE_PUBLIC_KEY` | stack | No | `empty` | app environment | Yes | Tracing requires both Langfuse keys. |
