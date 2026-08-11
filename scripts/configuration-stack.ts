@@ -9,14 +9,35 @@ type ComposeDefaultPolicy =
       pinComposeDefault?: never;
     };
 
+export type AppReachability = "yes" | "no" | { via: string };
+
 export type StackVariableDeclaration = ComposeDefaultPolicy & {
   required: boolean;
   consumer: string;
-  reachesApp: string;
+  reachesApp: AppReachability;
   notes: string;
 };
 
 export type StackVariableTable = Record<string, StackVariableDeclaration>;
+
+/** Return a pinned interpolation, or an empty pass-through for test fixtures. */
+export function composeDefaultInterpolation(
+  name: string,
+  declaration: StackVariableDeclaration,
+): string {
+  const defaultValue = declaration.pinComposeDefault
+    ? declaration.defaultValue
+    : "";
+  return `\${${name}:-${defaultValue}}`;
+}
+
+export function describeAppReachability(
+  reachability: AppReachability,
+): string {
+  if (reachability === "yes") return "Yes";
+  if (reachability === "no") return "No";
+  return reachability.via;
+}
 
 /**
  * Docker Compose interpolation inputs. These deliberately do not live in the
@@ -26,57 +47,57 @@ export const stackVariables = {
   DOMAIN: {
     required: true,
     consumer: "caddy service, OPENROUTER_APP_URL",
-    reachesApp: "Only as `https://${DOMAIN}`",
+    reachesApp: { via: "Only as `https://${DOMAIN}`" },
     notes: "Point DNS at the host before starting Caddy; use `localhost` for rehearsal.",
   },
   ACME_EMAIL: {
     required: true,
     consumer: "caddy service",
-    reachesApp: "No",
+    reachesApp: "no",
     notes: "Let's Encrypt expiry notices.",
   },
   APP_DB_PASSWORD: {
     required: true,
     consumer: "app-db, DATABASE_URL assembly",
-    reachesApp: "Only inside DATABASE_URL",
+    reachesApp: { via: "Only inside DATABASE_URL" },
     notes: "Generate with `openssl rand -hex 32`.",
   },
   INTERMEDIATE_ADMIN_PASSWORD: {
     required: true,
     consumer: "intermediate-db",
-    reachesApp: "No",
+    reachesApp: "no",
     notes: "Admin login used by CSV imports, never by the agent.",
   },
   INTERMEDIATE_READONLY_PASSWORD: {
     required: true,
     consumer: "init-intermediate.sh, INTERMEDIATE_DATABASE_URL assembly",
-    reachesApp: "Only inside INTERMEDIATE_DATABASE_URL",
+    reachesApp: { via: "Only inside INTERMEDIATE_DATABASE_URL" },
     notes: "The agent's read-only login.",
   },
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: {
     required: true,
     consumer: "Docker build arg and app environment",
-    reachesApp: "Yes",
+    reachesApp: "yes",
     notes: "Changing it requires a rebuild.",
   },
   CLERK_SECRET_KEY: {
     required: true,
     consumer: "app environment",
-    reachesApp: "Yes",
+    reachesApp: "yes",
     notes: "Server-side Clerk credential.",
   },
   OPENROUTER_API_KEY: {
     required: false,
     defaultValue: "empty",
     consumer: "app environment",
-    reachesApp: "Yes",
+    reachesApp: "yes",
     notes: "Empty enables demo fallback.",
   },
   MODEL_PROVIDER: {
     required: false,
     defaultValue: "empty",
     consumer: "app environment",
-    reachesApp: "Yes",
+    reachesApp: "yes",
     notes: "Set `mock` for an offline demonstration.",
   },
   OPENROUTER_APP_TITLE: appSchemaPassThrough("OpenRouter attribution title."),
@@ -90,6 +111,9 @@ export const stackVariables = {
   MODEL_SUMMARIZER_REASONING: reasoningOverride(),
   SQL_STATEMENT_TIMEOUT_MS: appSchemaPassThrough("Per-query timeout in milliseconds."),
   SQL_MAX_ROWS: appSchemaPassThrough("Maximum rows returned by a query."),
+  SQL_MAX_RESULT_BYTES: appSchemaPassThrough(
+    "Maximum serialized size of a persisted table artifact.",
+  ),
   DRAIN_GRACE_MS: appSchemaPassThrough("Keep below Compose's 40 second stop grace period."),
   APP_VERSION: appOptional("App version used by tracing and command-line output."),
   LANGFUSE_PUBLIC_KEY: appOptional("Tracing requires both Langfuse keys."),
@@ -104,7 +128,7 @@ function appOptional(notes: string): StackVariableDeclaration {
     required: false,
     defaultValue: "empty",
     consumer: "app environment",
-    reachesApp: "Yes",
+    reachesApp: "yes",
     notes,
   };
 }

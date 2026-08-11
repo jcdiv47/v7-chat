@@ -3,6 +3,8 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { serverVariables, type VariableTable } from "../src/env/variables";
 import {
+  composeDefaultInterpolation,
+  describeAppReachability,
   stackVariables,
   type StackVariableTable,
 } from "./configuration-stack";
@@ -65,7 +67,7 @@ export function renderStackVariableTable(
   declarations: StackVariableTable = stackVariables,
 ): string {
   const rows = Object.entries(declarations).map(([name, declaration]) =>
-    `| ${code(name)} | stack | ${declaration.required ? "Yes" : "No"} | ${declaration.defaultValue === undefined ? "none" : code(declaration.defaultValue)} | ${markdown(declaration.consumer)} | ${markdown(declaration.reachesApp)} | ${markdown(declaration.notes)} |`,
+    `| ${code(name)} | stack | ${declaration.required ? "Yes" : "No"} | ${declaration.defaultValue === undefined ? "none" : code(declaration.defaultValue)} | ${markdown(declaration.consumer)} | ${markdown(describeAppReachability(declaration.reachesApp))} | ${markdown(declaration.notes)} |`,
   );
   return [
     "| Variable | Capability | Required | Default | Consumed by | Reaches the app? | Notes |",
@@ -208,17 +210,41 @@ function composeAppEnvironment(composeFile: string): ComposeEnvironmentResult {
   return { environment };
 }
 
+function directlyInterpolates(name: string, value: string): boolean {
+  const bareInterpolation = `\${${name}}`;
+  const operatorPrefix = `\${${name}:`;
+  return (
+    value === bareInterpolation ||
+    (value.startsWith(operatorPrefix) &&
+      value.endsWith("}") &&
+      !value.slice(operatorPrefix.length, -1).includes("}"))
+  );
+}
+
 function composeDefaultProblems(
   environment: Map<string, string>,
 ): string[] {
   const problems: string[] = [];
   const declarations: StackVariableTable = stackVariables;
   for (const [name, declaration] of Object.entries(declarations)) {
-    if (!declaration.pinComposeDefault) continue;
-    const expected = `\${${name}:-${declaration.defaultValue}}`;
-    if (environment.get(name) !== expected) {
+    const composeValue = environment.get(name);
+    if (declaration.pinComposeDefault) {
+      const expected = composeDefaultInterpolation(name, declaration);
+      if (composeValue !== expected) {
+        problems.push(
+          `docker-compose.prod.yml must pin ${name} to its declared production default ${declaration.defaultValue}`,
+        );
+      }
+      continue;
+    }
+    if (declaration.reachesApp !== "yes") continue;
+    if (composeValue === undefined) {
       problems.push(
-        `docker-compose.prod.yml must pin ${name} to its declared production default ${declaration.defaultValue}`,
+        `docker-compose.prod.yml omits ${name}, which is declared as reaching the app`,
+      );
+    } else if (!directlyInterpolates(name, composeValue)) {
+      problems.push(
+        `docker-compose.prod.yml must interpolate ${name} from its stack variable`,
       );
     }
   }
