@@ -22,12 +22,21 @@ function code(value: unknown): string {
 
 function schemaRequirementAndDefault(declaration: VariableTable[string]): {
   required: boolean;
+  hasDefault: boolean;
   defaultValue: string;
 } {
   const absent = declaration.schema.safeParse(undefined);
-  if (!absent.success) return { required: true, defaultValue: "none" };
-  if (absent.data === undefined) return { required: false, defaultValue: "none" };
-  return { required: false, defaultValue: String(absent.data) };
+  if (!absent.success) {
+    return { required: true, hasDefault: false, defaultValue: "none" };
+  }
+  if (absent.data === undefined) {
+    return { required: false, hasDefault: false, defaultValue: "none" };
+  }
+  return {
+    required: false,
+    hasDefault: true,
+    defaultValue: String(absent.data),
+  };
 }
 
 /** Render the app schema as the host-process configuration table. */
@@ -113,49 +122,97 @@ function requiredHostVariables(table: VariableTable): string[] {
     .map(([name]) => name);
 }
 
-/** Scan only the app service's environment block; no YAML features are needed. */
-function composeAppEnvironment(composeFile: string): Map<string, string> {
-  const lines = composeFile.split("\n");
-  const servicesIndex = lines.findIndex((line) => /^services:\s*$/.test(line));
-  if (servicesIndex < 0) return new Map();
-  const appIndex = lines.findIndex(
-    (line, index) => index > servicesIndex && /^  app:\s*$/.test(line),
-  );
-  if (appIndex < 0) return new Map();
+function indentOf(line: string): number {
+  return line.match(/^\s*/)?.[0].length ?? 0;
+}
 
-  const appIndent = lines[appIndex]?.match(/^\s*/)?.[0].length ?? 0;
-  let environmentIndex = -1;
-  for (let index = appIndex + 1; index < lines.length; index += 1) {
+function childIndex(
+  lines: string[],
+  parentIndex: number,
+  key: string,
+): number | undefined {
+  const parentIndent = indentOf(lines[parentIndex] ?? "");
+  let childIndent: number | undefined;
+  for (let index = parentIndex + 1; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const indent = line.match(/^\s*/)?.[0].length ?? 0;
-    if (indent <= appIndent) break;
-    if (indent > appIndent && /^\s*environment:\s*$/.test(line)) {
-      environmentIndex = index;
-      break;
-    }
+    const indent = indentOf(line);
+    if (indent <= parentIndent) break;
+    childIndent ??= indent;
+    if (indent === childIndent && line.trim() === `${key}:`) return index;
   }
-  if (environmentIndex < 0) return new Map();
+  return undefined;
+}
 
-  const environmentIndent =
-    lines[environmentIndex]?.match(/^\s*/)?.[0].length ?? 0;
+function unquoteScalar(value: string): string {
+  const quote = value[0];
+  return value.length >= 2 &&
+    (quote === '"' || quote === "'") &&
+    value.at(-1) === quote
+    ? value.slice(1, -1)
+    : value;
+}
+
+type ComposeEnvironmentResult =
+  | { environment: Map<string, string> }
+  | { problem: string };
+
+/** Scan only the app service's environment block; no YAML features are needed. */
+function composeAppEnvironment(composeFile: string): ComposeEnvironmentResult {
+  const problem =
+    "could not locate the app service environment in docker-compose.prod.yml";
+  const lines = composeFile.split("\n");
+  const servicesIndex = lines.findIndex((line) => /^services:\s*$/.test(line));
+  if (servicesIndex < 0) return { problem };
+  const appIndex = childIndex(lines, servicesIndex, "app");
+  if (appIndex === undefined) return { problem };
+  const environmentIndex = childIndex(lines, appIndex, "environment");
+  if (environmentIndex === undefined) return { problem };
+
+  const environmentIndent = indentOf(lines[environmentIndex] ?? "");
   const environment = new Map<string, string>();
   for (let index = environmentIndex + 1; index < lines.length; index += 1) {
     const line = lines[index] ?? "";
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const indent = line.match(/^\s*/)?.[0].length ?? 0;
-    if (indent <= environmentIndent) break;
+    if (indentOf(line) <= environmentIndent) break;
     const entry = line.match(/^\s*([A-Z][A-Z0-9_]*):\s*(.*?)\s*$/);
     if (entry?.[1] && entry[2] !== undefined) {
-      environment.set(entry[1], entry[2]);
+      environment.set(entry[1], unquoteScalar(entry[2]));
     }
   }
-  return environment;
+  return { environment };
 }
 
-function hasSchemaDefault(declaration: VariableTable[string]): boolean {
-  const absent = declaration.schema.safeParse(undefined);
-  return absent.success && absent.data !== undefined;
+function composeDefaultProblems(
+  environment: Map<string, string>,
+): string[] {
+  const problems: string[] = [];
+  const declarations: StackVariableTable = stackVariables;
+  for (const [name, declaration] of Object.entries(declarations)) {
+    if (!declaration.pinComposeDefault) continue;
+    const expected = `\${${name}:-${declaration.defaultValue}}`;
+    if (environment.get(name) !== expected) {
+      problems.push(
+        `docker-compose.prod.yml must pin ${name} to its declared production default ${declaration.defaultValue}`,
+      );
+    }
+  }
+
+  for (const [name, value] of environment) {
+    const interpolation = value.match(/^\$\{([A-Z][A-Z0-9_]*):-([^}]*)\}$/);
+    if (!interpolation || interpolation[1] !== name || interpolation[2] === "") {
+      continue;
+    }
+    if (declarations[name]?.pinComposeDefault) continue;
+
+    const appDeclaration = (serverVariables as VariableTable)[name];
+    if (appDeclaration && schemaRequirementAndDefault(appDeclaration).hasDefault) {
+      problems.push(
+        `docker-compose.prod.yml pins ${name}; use \${${name}:-} so the app schema supplies its default`,
+      );
+    }
+  }
+  return problems;
 }
 
 export type ConfigurationCheckInput = {
@@ -192,40 +249,11 @@ export function checkConfiguration(input: ConfigurationCheckInput): {
     }
   }
 
-  const appEnvironment = composeAppEnvironment(input.composeFile);
-  for (const [name, declaration] of Object.entries(
-    stackVariables as StackVariableTable,
-  )) {
-    if (declaration.productionDefault === undefined) continue;
-    const expected = `\${${name}:-${declaration.productionDefault}}`;
-    if (appEnvironment.get(name) !== expected) {
-      problems.push(
-        `docker-compose.prod.yml must pin ${name} to its declared production default ${declaration.productionDefault}`,
-      );
-    }
-  }
-  for (const [name, value] of appEnvironment) {
-    const interpolation = value.match(/^\$\{([A-Z][A-Z0-9_]*):-([^}]*)\}$/);
-    if (!interpolation || interpolation[1] !== name || interpolation[2] === "") {
-      continue;
-    }
-    if (
-      (stackVariables as StackVariableTable)[name]?.productionDefault !==
-      undefined
-    ) {
-      continue;
-    }
-
-    const appDeclaration = (serverVariables as VariableTable)[name];
-    if (appDeclaration && hasSchemaDefault(appDeclaration)) {
-      problems.push(
-        `docker-compose.prod.yml pins ${name}; use \${${name}:-} so the app schema supplies its default`,
-      );
-    } else if (!appDeclaration) {
-      problems.push(
-        `docker-compose.prod.yml pins undeclared production default ${name}`,
-      );
-    }
+  const composeEnvironment = composeAppEnvironment(input.composeFile);
+  if ("problem" in composeEnvironment) {
+    problems.push(composeEnvironment.problem);
+  } else {
+    problems.push(...composeDefaultProblems(composeEnvironment.environment));
   }
   return { problems };
 }

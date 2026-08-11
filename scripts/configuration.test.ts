@@ -129,9 +129,18 @@ describe("configuration checks", () => {
     );
   });
 
-  it("reports Compose defaults that duplicate app-schema defaults", () => {
+  it.each([
+    "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500}",
+    '      SQL_MAX_ROWS: "${SQL_MAX_ROWS:-500}"',
+    "      SQL_MAX_ROWS: '${SQL_MAX_ROWS:-500}'",
+  ])("reports app-schema defaults in Compose scalar %s", (declaration) => {
     const result = checkConfiguration(
-      validInput("      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500}"),
+      validInput(
+        [
+          declaration,
+          "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
+        ].join("\n"),
+      ),
     );
 
     expect(result.problems).toContain(
@@ -139,11 +148,12 @@ describe("configuration checks", () => {
     );
   });
 
-  it("accepts schema pass-through and Compose-supplied defaults", () => {
+  it("accepts pass-throughs and a default for an app variable with no schema default", () => {
     const result = checkConfiguration(
       validInput(
         [
           "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-}",
+          "      APP_VERSION: ${APP_VERSION:-v1.2.3}",
           "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
         ].join("\n"),
       ),
@@ -172,6 +182,7 @@ describe("configuration checks", () => {
           "      OPENROUTER_APP_URL: https://${DOMAIN}",
           "      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in",
           '      NEXT_MANUAL_SIG_HANDLE: "true"',
+          "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
         ].join("\n"),
       ),
     );
@@ -185,6 +196,7 @@ describe("configuration checks", () => {
         [
           "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500}",
           "      DRAIN_GRACE_MS: ${DRAIN_GRACE_MS:-25000}",
+          "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
         ].join("\n"),
       ),
     );
@@ -194,12 +206,36 @@ describe("configuration checks", () => {
       "docker-compose.prod.yml pins DRAIN_GRACE_MS; use ${DRAIN_GRACE_MS:-} so the app schema supplies its default",
     ]);
   });
+
+  it.each([
+    "app:\n  environment:",
+    "services:\n  renamed-app:\n    environment:",
+    "services:\n  app:\n    command: node server.js",
+  ])("fails loudly when the app environment cannot be located", (composeFile) => {
+    const result = checkConfiguration({ ...validInput(""), composeFile });
+
+    expect(result.problems).toContain(
+      "could not locate the app service environment in docker-compose.prod.yml",
+    );
+  });
+
+  it("accepts nonstandard but valid indentation", () => {
+    const result = checkConfiguration({
+      ...validInput(""),
+      composeFile: [
+        "services:",
+        "    app:",
+        "        environment:",
+        "            SQL_MAX_ROWS: ${SQL_MAX_ROWS:-}",
+        "            LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
+      ].join("\n"),
+    });
+
+    expect(result.problems).toEqual([]);
+  });
 });
 
 function validInput(environment: string) {
-  const completeEnvironment = environment.includes("LANGFUSE_ENVIRONMENT:")
-    ? environment
-    : `${environment}\n      LANGFUSE_ENVIRONMENT: \${LANGFUSE_ENVIRONMENT:-production}`;
   return {
     document: [
       "<!-- BEGIN GENERATED HOST CONFIGURATION -->",
@@ -215,6 +251,6 @@ function validInput(environment: string) {
     stackTemplate: Object.keys(stackVariables)
       .map((name) => `${name}=`)
       .join("\n"),
-    composeFile: `services:\n  app:\n    environment:\n${completeEnvironment}\n`,
+    composeFile: `services:\n  app:\n    environment:\n${environment}\n`,
   };
 }

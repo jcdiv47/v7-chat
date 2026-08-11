@@ -82,7 +82,9 @@ JavaScript.
 
 `NEXT_PUBLIC_CLERK_SIGN_IN_URL` and `NEXT_PUBLIC_CLERK_SIGN_UP_URL` are pinned
 to `/sign-in` and `/sign-up` in both the Dockerfile and `docker-compose.prod.yml`,
-so they are configurable on the host surface only.
+so they are configurable on the host surface only. The configuration checker
+deliberately exempts fixed Compose values, so it does not compare these literals
+with their app-schema defaults.
 
 ## Host process configuration
 
