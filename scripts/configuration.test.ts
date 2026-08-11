@@ -9,6 +9,7 @@ import {
   replaceGeneratedTables,
 } from "./configuration";
 import {
+  composeDefaultInterpolation,
   stackVariables,
   type StackVariableTable,
 } from "./configuration-stack";
@@ -133,21 +134,16 @@ describe("configuration checks", () => {
   });
 
   it.each([
-    "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500}",
-    '      SQL_MAX_ROWS: "${SQL_MAX_ROWS:-500}"',
-    "      SQL_MAX_ROWS: '${SQL_MAX_ROWS:-500}'",
-    "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500} # tune per host",
-    '      SQL_MAX_ROWS: "${SQL_MAX_ROWS:-500}" # tune per host',
-    "      SQL_MAX_ROWS: '${SQL_MAX_ROWS:-500}' # tune per host",
-    '      SQL_MAX_ROWS: "${SQL_MAX_ROWS:-500 # not a YAML comment}"',
-  ])("reports app-schema defaults in Compose scalar %s", (declaration) => {
+    "${SQL_MAX_ROWS:-500}",
+    '"${SQL_MAX_ROWS:-500}"',
+    "'${SQL_MAX_ROWS:-500}'",
+    "${SQL_MAX_ROWS:-500} # tune per host",
+    '"${SQL_MAX_ROWS:-500}" # tune per host',
+    "'${SQL_MAX_ROWS:-500}' # tune per host",
+    '"${SQL_MAX_ROWS:-500 # not a YAML comment}"',
+  ])("reports app-schema defaults in Compose scalar %s", (value) => {
     const result = checkConfiguration(
-      validInput(
-        [
-          declaration,
-          "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
-        ].join("\n"),
-      ),
+      validInput({ SQL_MAX_ROWS: value }),
     );
 
     expect(result.problems).toContain(
@@ -157,13 +153,10 @@ describe("configuration checks", () => {
 
   it("accepts pass-throughs and a default for an app variable with no schema default", () => {
     const result = checkConfiguration(
-      validInput(
-        [
-          "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-}",
-          "      APP_VERSION: ${APP_VERSION:-v1.2.3}",
-          "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
-        ].join("\n"),
-      ),
+      validInput({
+        SQL_MAX_ROWS: "${SQL_MAX_ROWS:-}",
+        APP_VERSION: "${APP_VERSION:-v1.2.3}",
+      }),
     );
 
     expect(result.problems).toEqual([]);
@@ -171,7 +164,7 @@ describe("configuration checks", () => {
 
   it("reports a variable declared as reaching the app when Compose omits it", () => {
     const result = checkConfiguration(
-      validInput("", ["SQL_MAX_RESULT_BYTES"]),
+      validInput({}, ["SQL_MAX_RESULT_BYTES"]),
     );
 
     expect(result.problems).toContain(
@@ -179,11 +172,24 @@ describe("configuration checks", () => {
     );
   });
 
+  it.each(["700000", "${OTHER:-}"])(
+    "reports an app-reachable variable that does not interpolate itself: %s",
+    (value) => {
+      const result = checkConfiguration(
+        validInput({ SQL_MAX_RESULT_BYTES: value }),
+      );
+
+      expect(result.problems).toContain(
+        "docker-compose.prod.yml must interpolate SQL_MAX_RESULT_BYTES from its stack variable",
+      );
+    },
+  );
+
   it("reports a declared production default when Compose diverges", () => {
     const result = checkConfiguration(
-      validInput(
-        "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-staging}",
-      ),
+      validInput({
+        LANGFUSE_ENVIRONMENT: "${LANGFUSE_ENVIRONMENT:-staging}",
+      }),
     );
 
     expect(result.problems).toContain(
@@ -193,15 +199,13 @@ describe("configuration checks", () => {
 
   it("ignores assembled and fixed Compose values", () => {
     const result = checkConfiguration(
-      validInput(
-        [
-          "      DATABASE_URL: postgresql://v7:${APP_DB_PASSWORD}@app-db:5432/v7_chat",
-          "      OPENROUTER_APP_URL: https://${DOMAIN}",
-          "      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in",
-          '      NEXT_MANUAL_SIG_HANDLE: "true"',
-          "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
-        ].join("\n"),
-      ),
+      validInput({
+        DATABASE_URL:
+          "postgresql://v7:${APP_DB_PASSWORD}@app-db:5432/v7_chat",
+        OPENROUTER_APP_URL: "https://${DOMAIN}",
+        NEXT_PUBLIC_CLERK_SIGN_IN_URL: "/sign-in",
+        NEXT_MANUAL_SIG_HANDLE: '"true"',
+      }),
     );
 
     expect(result.problems).toEqual([]);
@@ -209,13 +213,10 @@ describe("configuration checks", () => {
 
   it("reports every drifted Compose default in one pass", () => {
     const result = checkConfiguration(
-      validInput(
-        [
-          "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500}",
-          "      DRAIN_GRACE_MS: ${DRAIN_GRACE_MS:-25000}",
-          "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
-        ].join("\n"),
-      ),
+      validInput({
+        SQL_MAX_ROWS: "${SQL_MAX_ROWS:-500}",
+        DRAIN_GRACE_MS: "${DRAIN_GRACE_MS:-25000}",
+      }),
     );
 
     expect(result.problems).toEqual([
@@ -229,7 +230,7 @@ describe("configuration checks", () => {
     "services:\n  renamed-app:\n    environment:",
     "services:\n  app:\n    command: node server.js",
   ])("fails loudly when the app environment cannot be located", (composeFile) => {
-    const result = checkConfiguration({ ...validInput(""), composeFile });
+    const result = checkConfiguration({ ...validInput({}), composeFile });
 
     expect(result.problems).toContain(
       "could not locate the app service environment in docker-compose.prod.yml",
@@ -237,12 +238,12 @@ describe("configuration checks", () => {
   });
 
   it("accepts nonstandard but valid indentation", () => {
-    const environment = validComposeEnvironment("")
+    const environment = validComposeEnvironment({})
       .split("\n")
       .map((line) => `            ${line.trimStart()}`)
       .join("\n");
     const result = checkConfiguration({
-      ...validInput(""),
+      ...validInput({}),
       composeFile: [
         "services:",
         "    app:",
@@ -256,26 +257,34 @@ describe("configuration checks", () => {
 });
 
 function validComposeEnvironment(
-  environment: string,
+  overrides: Record<string, string>,
   omitted: string[] = [],
 ): string {
   const omittedNames = new Set(omitted);
   const stackDeclarations: StackVariableTable = stackVariables;
-  const declarations = Object.entries(stackDeclarations)
-    .filter(
-      ([name, declaration]) =>
-        declaration.reachesApp === "Yes" && !omittedNames.has(name),
-    )
-    .map(([name, declaration]) =>
-      declaration.pinComposeDefault
-        ? `      ${name}: \${${name}:-${declaration.defaultValue}}`
-        : `      ${name}: \${${name}:-}`,
-    );
-  if (environment) declarations.push(environment);
-  return declarations.join("\n");
+  const environment = new Map(
+    Object.entries(stackDeclarations)
+      .filter(
+        ([name, declaration]) =>
+          declaration.reachesApp === "Yes" && !omittedNames.has(name),
+      )
+      .map(([name, declaration]) => [
+        name,
+        composeDefaultInterpolation(name, declaration),
+      ]),
+  );
+  for (const [name, value] of Object.entries(overrides)) {
+    environment.set(name, value);
+  }
+  return [...environment]
+    .map(([name, value]) => `      ${name}: ${value}`)
+    .join("\n");
 }
 
-function validInput(environment: string, omitted: string[] = []) {
+function validInput(
+  overrides: Record<string, string>,
+  omitted: string[] = [],
+) {
   return {
     document: [
       "<!-- BEGIN GENERATED HOST CONFIGURATION -->",
@@ -291,6 +300,6 @@ function validInput(environment: string, omitted: string[] = []) {
     stackTemplate: Object.keys(stackVariables)
       .map((name) => `${name}=`)
       .join("\n"),
-    composeFile: `services:\n  app:\n    environment:\n${validComposeEnvironment(environment, omitted)}\n`,
+    composeFile: `services:\n  app:\n    environment:\n${validComposeEnvironment(overrides, omitted)}\n`,
   };
 }

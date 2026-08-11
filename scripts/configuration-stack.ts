@@ -18,6 +18,16 @@ export type StackVariableDeclaration = ComposeDefaultPolicy & {
 
 export type StackVariableTable = Record<string, StackVariableDeclaration>;
 
+export function composeDefaultInterpolation(
+  name: string,
+  declaration: StackVariableDeclaration,
+): string {
+  const defaultValue = declaration.pinComposeDefault
+    ? declaration.defaultValue
+    : "";
+  return `\${${name}:-${defaultValue}}`;
+}
+
 /**
  * Docker Compose interpolation inputs. These deliberately do not live in the
  * app environment schema because Compose consumes them before the app starts.

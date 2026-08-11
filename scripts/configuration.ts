@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { serverVariables, type VariableTable } from "../src/env/variables";
 import {
+  composeDefaultInterpolation,
   stackVariables,
   type StackVariableTable,
 } from "./configuration-stack";
@@ -214,13 +215,21 @@ function composeDefaultProblems(
   const problems: string[] = [];
   const declarations: StackVariableTable = stackVariables;
   for (const [name, declaration] of Object.entries(declarations)) {
-    if (declaration.reachesApp === "Yes" && !environment.has(name)) {
+    const composeValue = environment.get(name);
+    if (declaration.reachesApp === "Yes" && composeValue === undefined) {
       problems.push(
         `docker-compose.prod.yml omits ${name}, which is declared as reaching the app`,
       );
+    } else if (
+      declaration.reachesApp === "Yes" &&
+      !composeValue?.match(new RegExp(`^\\$\\{${name}(?::[^}]*)?\\}$`))
+    ) {
+      problems.push(
+        `docker-compose.prod.yml must interpolate ${name} from its stack variable`,
+      );
     }
     if (!declaration.pinComposeDefault) continue;
-    const expected = `\${${name}:-${declaration.defaultValue}}`;
+    const expected = composeDefaultInterpolation(name, declaration);
     if (environment.get(name) !== expected) {
       problems.push(
         `docker-compose.prod.yml must pin ${name} to its declared production default ${declaration.defaultValue}`,
