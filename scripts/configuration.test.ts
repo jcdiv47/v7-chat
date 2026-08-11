@@ -172,6 +172,18 @@ describe("configuration checks", () => {
     );
   });
 
+  it.each([
+    [
+      "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+      "${NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY}",
+    ],
+    ["CLERK_SECRET_KEY", "${CLERK_SECRET_KEY:?Set CLERK_SECRET_KEY}"],
+  ])("accepts direct app interpolation %s: %s", (name, value) => {
+    const result = checkConfiguration(validInput({ [name]: value }));
+
+    expect(result.problems).toEqual([]);
+  });
+
   it.each(["700000", "${OTHER:-}"])(
     "reports an app-reachable variable that does not interpolate itself: %s",
     (value) => {
@@ -185,16 +197,17 @@ describe("configuration checks", () => {
     },
   );
 
-  it("reports a declared production default when Compose diverges", () => {
+  it.each([
+    "${LANGFUSE_ENVIRONMENT:-staging}",
+    "production",
+  ])("reports one problem when a declared production default diverges: %s", (value) => {
     const result = checkConfiguration(
-      validInput({
-        LANGFUSE_ENVIRONMENT: "${LANGFUSE_ENVIRONMENT:-staging}",
-      }),
+      validInput({ LANGFUSE_ENVIRONMENT: value }),
     );
 
-    expect(result.problems).toContain(
+    expect(result.problems).toEqual([
       "docker-compose.prod.yml must pin LANGFUSE_ENVIRONMENT to its declared production default production",
-    );
+    ]);
   });
 
   it("ignores assembled and fixed Compose values", () => {
@@ -266,7 +279,7 @@ function validComposeEnvironment(
     Object.entries(stackDeclarations)
       .filter(
         ([name, declaration]) =>
-          declaration.reachesApp === "Yes" && !omittedNames.has(name),
+          declaration.reachesApp === "yes" && !omittedNames.has(name),
       )
       .map(([name, declaration]) => [
         name,
