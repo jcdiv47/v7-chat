@@ -22,12 +22,21 @@ function code(value: unknown): string {
 
 function schemaRequirementAndDefault(declaration: VariableTable[string]): {
   required: boolean;
+  hasDefault: boolean;
   defaultValue: string;
 } {
   const absent = declaration.schema.safeParse(undefined);
-  if (!absent.success) return { required: true, defaultValue: "none" };
-  if (absent.data === undefined) return { required: false, defaultValue: "none" };
-  return { required: false, defaultValue: String(absent.data) };
+  if (!absent.success) {
+    return { required: true, hasDefault: false, defaultValue: "none" };
+  }
+  if (absent.data === undefined) {
+    return { required: false, hasDefault: false, defaultValue: "none" };
+  }
+  return {
+    required: false,
+    hasDefault: true,
+    defaultValue: String(absent.data),
+  };
 }
 
 /** Render the app schema as the host-process configuration table. */
@@ -113,10 +122,129 @@ function requiredHostVariables(table: VariableTable): string[] {
     .map(([name]) => name);
 }
 
+function indentOf(line: string): number {
+  return line.match(/^\s*/)?.[0].length ?? 0;
+}
+
+function childIndex(
+  lines: string[],
+  parentIndex: number,
+  key: string,
+): number | undefined {
+  const parentIndent = indentOf(lines[parentIndex] ?? "");
+  let childIndent: number | undefined;
+  for (let index = parentIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    const indent = indentOf(line);
+    if (indent <= parentIndent) break;
+    childIndent ??= indent;
+    if (indent === childIndent && line.trim() === `${key}:`) return index;
+  }
+  return undefined;
+}
+
+function stripYamlComment(value: string): string {
+  let quote: "'" | '"' | undefined;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote === "'" && character === "'") {
+      if (value[index + 1] === "'") index += 1;
+      else quote = undefined;
+    } else if (quote === '"' && character === "\\") {
+      index += 1;
+    } else if (quote === '"' && character === '"') {
+      quote = undefined;
+    } else if (!quote && (character === "'" || character === '"')) {
+      quote = character;
+    } else if (
+      !quote &&
+      character === "#" &&
+      (index === 0 || /\s/.test(value[index - 1] ?? ""))
+    ) {
+      return value.slice(0, index).trimEnd();
+    }
+  }
+  return value;
+}
+
+function normalizeYamlScalar(value: string): string {
+  const uncommented = stripYamlComment(value);
+  const quote = uncommented[0];
+  return uncommented.length >= 2 &&
+    (quote === '"' || quote === "'") &&
+    uncommented.at(-1) === quote
+    ? uncommented.slice(1, -1)
+    : uncommented;
+}
+
+type ComposeEnvironmentResult =
+  | { environment: Map<string, string> }
+  | { problem: string };
+
+/** Scan only the app service's environment block; no YAML features are needed. */
+function composeAppEnvironment(composeFile: string): ComposeEnvironmentResult {
+  const problem =
+    "could not locate the app service environment in docker-compose.prod.yml";
+  const lines = composeFile.split("\n");
+  const servicesIndex = lines.findIndex((line) => /^services:\s*$/.test(line));
+  if (servicesIndex < 0) return { problem };
+  const appIndex = childIndex(lines, servicesIndex, "app");
+  if (appIndex === undefined) return { problem };
+  const environmentIndex = childIndex(lines, appIndex, "environment");
+  if (environmentIndex === undefined) return { problem };
+
+  const environmentIndent = indentOf(lines[environmentIndex] ?? "");
+  const environment = new Map<string, string>();
+  for (let index = environmentIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    if (indentOf(line) <= environmentIndent) break;
+    const entry = line.match(/^\s*([A-Z][A-Z0-9_]*):\s*(.*?)\s*$/);
+    if (entry?.[1] && entry[2] !== undefined) {
+      environment.set(entry[1], normalizeYamlScalar(entry[2]));
+    }
+  }
+  return { environment };
+}
+
+function composeDefaultProblems(
+  environment: Map<string, string>,
+): string[] {
+  const problems: string[] = [];
+  const declarations: StackVariableTable = stackVariables;
+  for (const [name, declaration] of Object.entries(declarations)) {
+    if (!declaration.pinComposeDefault) continue;
+    const expected = `\${${name}:-${declaration.defaultValue}}`;
+    if (environment.get(name) !== expected) {
+      problems.push(
+        `docker-compose.prod.yml must pin ${name} to its declared production default ${declaration.defaultValue}`,
+      );
+    }
+  }
+
+  for (const [name, value] of environment) {
+    const interpolation = value.match(/^\$\{([A-Z][A-Z0-9_]*):-([^}]*)\}$/);
+    if (!interpolation || interpolation[1] !== name || interpolation[2] === "") {
+      continue;
+    }
+    if (declarations[name]?.pinComposeDefault) continue;
+
+    const appDeclaration = (serverVariables as VariableTable)[name];
+    if (appDeclaration && schemaRequirementAndDefault(appDeclaration).hasDefault) {
+      problems.push(
+        `docker-compose.prod.yml pins ${name}; use \${${name}:-} so the app schema supplies its default`,
+      );
+    }
+  }
+  return problems;
+}
+
 export type ConfigurationCheckInput = {
   document: string;
   hostTemplate: string;
   stackTemplate: string;
+  composeFile: string;
 };
 
 /** Check committed output and ensure templates expose every required input. */
@@ -145,16 +273,25 @@ export function checkConfiguration(input: ConfigurationCheckInput): {
       );
     }
   }
+
+  const composeEnvironment = composeAppEnvironment(input.composeFile);
+  if ("problem" in composeEnvironment) {
+    problems.push(composeEnvironment.problem);
+  } else {
+    problems.push(...composeDefaultProblems(composeEnvironment.environment));
+  }
   return { problems };
 }
 
 async function readInputs(root: string): Promise<ConfigurationCheckInput> {
-  const [document, hostTemplate, stackTemplate] = await Promise.all([
-    readFile(resolve(root, "docs/configuration.md"), "utf8"),
-    readFile(resolve(root, ".env.example"), "utf8"),
-    readFile(resolve(root, "deploy/stack.env.example"), "utf8"),
-  ]);
-  return { document, hostTemplate, stackTemplate };
+  const [document, hostTemplate, stackTemplate, composeFile] =
+    await Promise.all([
+      readFile(resolve(root, "docs/configuration.md"), "utf8"),
+      readFile(resolve(root, ".env.example"), "utf8"),
+      readFile(resolve(root, "deploy/stack.env.example"), "utf8"),
+      readFile(resolve(root, "docker-compose.prod.yml"), "utf8"),
+    ]);
+  return { document, hostTemplate, stackTemplate, composeFile };
 }
 
 async function main(): Promise<void> {

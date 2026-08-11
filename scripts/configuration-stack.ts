@@ -1,6 +1,16 @@
-export type StackVariableDeclaration = {
+type ComposeDefaultPolicy =
+  | {
+      defaultValue: string;
+      /** Pin defaultValue in Compose instead of passing an empty value to the app. */
+      pinComposeDefault: true;
+    }
+  | {
+      defaultValue?: string;
+      pinComposeDefault?: never;
+    };
+
+export type StackVariableDeclaration = ComposeDefaultPolicy & {
   required: boolean;
-  defaultValue?: string;
   consumer: string;
   reachesApp: string;
   notes: string;
@@ -69,13 +79,7 @@ export const stackVariables = {
     reachesApp: "Yes",
     notes: "Set `mock` for an offline demonstration.",
   },
-  OPENROUTER_APP_TITLE: {
-    required: false,
-    defaultValue: "v7 Business Analyst",
-    consumer: "app environment",
-    reachesApp: "Yes",
-    notes: "OpenRouter attribution title.",
-  },
+  OPENROUTER_APP_TITLE: appSchemaPassThrough("OpenRouter attribution title."),
   MODEL_FAST: modelOverride(),
   MODEL_ANALYST: modelOverride(),
   MODEL_SQL: modelOverride(),
@@ -84,14 +88,14 @@ export const stackVariables = {
   MODEL_ANALYST_REASONING: reasoningOverride(),
   MODEL_SQL_REASONING: reasoningOverride(),
   MODEL_SUMMARIZER_REASONING: reasoningOverride(),
-  SQL_STATEMENT_TIMEOUT_MS: appDefault("10000", "Per-query timeout in milliseconds."),
-  SQL_MAX_ROWS: appDefault("500", "Maximum rows returned by a query."),
-  DRAIN_GRACE_MS: appDefault("25000", "Keep below Compose's 40 second stop grace period."),
+  SQL_STATEMENT_TIMEOUT_MS: appSchemaPassThrough("Per-query timeout in milliseconds."),
+  SQL_MAX_ROWS: appSchemaPassThrough("Maximum rows returned by a query."),
+  DRAIN_GRACE_MS: appSchemaPassThrough("Keep below Compose's 40 second stop grace period."),
   APP_VERSION: appOptional("App version used by tracing and command-line output."),
   LANGFUSE_PUBLIC_KEY: appOptional("Tracing requires both Langfuse keys."),
   LANGFUSE_SECRET_KEY: appOptional("Tracing requires both Langfuse keys."),
   LANGFUSE_BASE_URL: appOptional("Region-specific or self-hosted Langfuse URL."),
-  LANGFUSE_ENVIRONMENT: appDefault("production", "Environment label on traces."),
+  LANGFUSE_ENVIRONMENT: appComposeDefault("production", "Environment label on traces."),
   LANGFUSE_RELEASE: appOptional("Release label on traces."),
 } satisfies StackVariableTable;
 
@@ -105,11 +109,15 @@ function appOptional(notes: string): StackVariableDeclaration {
   };
 }
 
-function appDefault(
+function appSchemaPassThrough(notes: string): StackVariableDeclaration {
+  return appOptional(`Empty falls back to the app schema. ${notes}`);
+}
+
+function appComposeDefault(
   defaultValue: string,
   notes: string,
 ): StackVariableDeclaration {
-  return { ...appOptional(notes), defaultValue };
+  return { ...appOptional(notes), defaultValue, pinComposeDefault: true };
 }
 
 function modelOverride(): StackVariableDeclaration {
