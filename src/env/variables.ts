@@ -53,6 +53,8 @@ export type Declaration<S extends z.ZodType = z.ZodType> = {
   documentedSource?: string;
   /** False when the value is fixed by production files, not host-configurable. */
   hostTemplate?: false;
+  /** Value retained in the host template when a raw SDK consumer needs it. */
+  hostTemplateValue?: string;
   /** Completes "expected …" in a problem line. */
   expectation: string;
 };
@@ -137,6 +139,7 @@ export const publicVariables = {
     schema: z.string().default("/sign-in"),
     secret: false,
     consumer: "Clerk SDK",
+    hostTemplateValue: "/sign-in",
     expectation: "a path to the sign-in page",
   },
   NEXT_PUBLIC_CLERK_SIGN_UP_URL: {
@@ -144,6 +147,7 @@ export const publicVariables = {
     schema: z.string().default("/sign-up"),
     secret: false,
     consumer: "Clerk SDK",
+    hostTemplateValue: "/sign-up",
     expectation: "a path to the sign-up page",
   },
   NEXT_PUBLIC_APP_VERSION: {
@@ -151,9 +155,10 @@ export const publicVariables = {
     schema: z.string().optional(),
     secret: false,
     consumer: "src/lib/app-version.ts",
-    documentedSource: "`.env.local` or the build environment",
+    documentedSource:
+      "`.env.local` for next dev/build; not exposed by the production stack",
     notes:
-      "Used after APP_VERSION and before package.json; inlined into client code at build time.",
+      "Used after APP_VERSION and before package.json; inlined at build time when referenced by client code.",
     expectation: "a version string",
   },
 } satisfies VariableTable;
@@ -362,6 +367,7 @@ export const serverVariables = {
     schema: z.string().optional(),
     secret: false,
     consumer: "src/server/telemetry.ts",
+    documentedDefault: "none (host schema); `production` (stack)",
     expectation: "an environment label",
   },
   LANGFUSE_RELEASE: {

@@ -124,7 +124,7 @@ entries.
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | core | Yes | none | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK (clerkMiddleware in src/proxy.ts, React providers) | a Clerk publishable key |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | core | No | `/sign-in` | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK | a path to the sign-in page |
 | `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | core | No | `/sign-up` | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK | a path to the sign-up page |
-| `NEXT_PUBLIC_APP_VERSION` | tracing | No | none | `.env.local` or the build environment | src/lib/app-version.ts | Used after APP_VERSION and before package.json; inlined into client code at build time. |
+| `NEXT_PUBLIC_APP_VERSION` | tracing | No | none | `.env.local` for next dev/build; not exposed by the production stack | src/lib/app-version.ts | Used after APP_VERSION and before package.json; inlined at build time when referenced by client code. |
 | `MODEL_PROVIDER` | model-provider | No | `openrouter` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: openrouter, mock |
 | `OPENROUTER_API_KEY` | model-provider | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter API key |
 | `OPENROUTER_APP_URL` | model-provider | No | `http://localhost:3000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts (HTTP-Referer attribution header) | an http:// or https:// URL |
@@ -146,7 +146,7 @@ entries.
 | `LANGFUSE_PUBLIC_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | a Langfuse public key |
 | `LANGFUSE_SECRET_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | a Langfuse secret key |
 | `LANGFUSE_BASE_URL` | tracing | No | https://cloud.langfuse.com (Langfuse SDK) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an http:// or https:// URL |
-| `LANGFUSE_ENVIRONMENT` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an environment label |
+| `LANGFUSE_ENVIRONMENT` | tracing | No | none (host schema); `production` (stack) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an environment label |
 | `LANGFUSE_RELEASE` | tracing | No | the resolved app version | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/app-version.ts | a release label |
 | `DRAIN_GRACE_MS` | lifecycle | No | `25000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/sweeper.ts | a positive whole number of milliseconds |
 | `NEXT_MANUAL_SIG_HANDLE` | lifecycle | No | none | `Dockerfile` and `docker-compose.prod.yml` | Next.js (set by the Dockerfile and docker-compose.prod.yml) | a truthy string enabling the app's own SIGTERM handler |
@@ -194,14 +194,14 @@ reference.
 | `OPENROUTER_API_KEY` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty enables demo fallback. |
 | `MODEL_PROVIDER` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Set `mock` for an offline demonstration. |
 | `OPENROUTER_APP_TITLE` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. OpenRouter attribution title. |
-| `MODEL_FAST` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema's model alias default. |
-| `MODEL_ANALYST` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema's model alias default. |
-| `MODEL_SQL` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema's model alias default. |
-| `MODEL_SUMMARIZER` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema's model alias default. |
-| `MODEL_FAST_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
-| `MODEL_ANALYST_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
-| `MODEL_SQL_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
-| `MODEL_SUMMARIZER_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
+| `MODEL_FAST` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
+| `MODEL_ANALYST` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
+| `MODEL_SQL` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
+| `MODEL_SUMMARIZER` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
+| `MODEL_FAST_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Reasoning-effort override. |
+| `MODEL_ANALYST_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Reasoning-effort override. |
+| `MODEL_SQL_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Reasoning-effort override. |
+| `MODEL_SUMMARIZER_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Reasoning-effort override. |
 | `SQL_STATEMENT_TIMEOUT_MS` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Per-query timeout in milliseconds. |
 | `SQL_MAX_ROWS` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Maximum rows returned by a query. |
 | `SQL_MAX_RESULT_BYTES` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Maximum serialized size of a persisted table artifact. |

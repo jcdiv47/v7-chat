@@ -9,7 +9,6 @@ import {
   replaceGeneratedTables,
 } from "./configuration";
 import {
-  composeDefaultInterpolation,
   stackVariables,
   type StackVariableTable,
 } from "./configuration-stack";
@@ -151,6 +150,60 @@ describe("configuration checks", () => {
 
     expect(result.problems).toContain(
       ".env.example omits required variable CLERK_SECRET_KEY",
+    );
+  });
+
+  it("reports schema defaults pinned in the host template", () => {
+    const result = checkConfiguration({
+      ...validInput({}),
+      hostTemplate: Object.entries(serverVariables as VariableTable)
+        .map(([name, declaration]) =>
+          `${name}=${name === "SQL_MAX_RESULT_BYTES" ? "700000" : declaration.hostTemplateValue ?? ""}`,
+        )
+        .join("\n"),
+    });
+
+    expect(result.problems).toContain(
+      ".env.example must set SQL_MAX_RESULT_BYTES to an empty value",
+    );
+  });
+
+  it("reports defaults pinned in the stack template", () => {
+    const result = checkConfiguration({
+      ...validInput({}),
+      stackTemplate: Object.keys(stackVariables)
+        .map((name) => {
+          const value =
+            name === "SQL_MAX_ROWS"
+              ? "500"
+              : name === "LANGFUSE_ENVIRONMENT"
+                ? "production"
+                : "";
+          return `${name}=${value}`;
+        })
+        .join("\n"),
+    });
+
+    expect(result.problems).toContain(
+      "deploy/stack.env.example must set SQL_MAX_ROWS to an empty value",
+    );
+    expect(result.problems).not.toContain(
+      "deploy/stack.env.example must set LANGFUSE_ENVIRONMENT to production",
+    );
+  });
+
+  it("treats an inline stack-template comment as a value", () => {
+    const input = validInput({});
+    const result = checkConfiguration({
+      ...input,
+      stackTemplate: input.stackTemplate.replace(
+        "SQL_MAX_ROWS=",
+        "SQL_MAX_ROWS= # not empty in a Compose env file",
+      ),
+    });
+
+    expect(result.problems).toContain(
+      "deploy/stack.env.example must set SQL_MAX_ROWS to an empty value",
     );
   });
 
@@ -324,11 +377,13 @@ function validComposeEnvironment(
     Object.entries(stackDeclarations)
       .filter(
         ([name, declaration]) =>
-          declaration.reachesApp === "yes" && !omittedNames.has(name),
+          declaration.reachesApp !== false &&
+          declaration.reachesApp.kind === "direct" &&
+          !omittedNames.has(name),
       )
       .map(([name, declaration]) => [
         name,
-        composeDefaultInterpolation(name, declaration),
+        `\${${name}:-${declaration.pinComposeDefault ? declaration.defaultValue : ""}}`,
       ]),
   );
   for (const [name, value] of Object.entries(overrides)) {
@@ -343,6 +398,7 @@ function validInput(
   overrides: Record<string, string>,
   omitted: string[] = [],
 ) {
+  const stackDeclarations: StackVariableTable = stackVariables;
   return {
     document: [
       "<!-- BEGIN GENERATED HOST CONFIGURATION -->",
@@ -352,11 +408,15 @@ function validInput(
       renderStackVariableTable(stackVariables),
       "<!-- END GENERATED STACK CONFIGURATION -->",
     ].join("\n"),
-    hostTemplate: Object.keys(serverVariables)
-      .map((name) => `${name}=`)
+    hostTemplate: Object.entries(serverVariables as VariableTable)
+      .map(([name, declaration]) =>
+        `${name}=${declaration.hostTemplateValue ?? ""}`,
+      )
       .join("\n"),
-    stackTemplate: Object.keys(stackVariables)
-      .map((name) => `${name}=`)
+    stackTemplate: Object.entries(stackDeclarations)
+      .map(([name, declaration]) =>
+        `${name}=${declaration.pinComposeDefault ? declaration.defaultValue : ""}`,
+      )
       .join("\n"),
     composeFile: `services:\n  app:\n    environment:\n${validComposeEnvironment(overrides, omitted)}\n`,
   };
