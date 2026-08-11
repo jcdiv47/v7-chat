@@ -129,13 +129,19 @@ function hostTemplateVariables(table: VariableTable): [string, VariableTable[str
 }
 
 function directlyInterpolates(name: string, value: string): boolean {
-  const bareInterpolation = `\${${name}}`;
-  const operatorPrefix = `\${${name}:`;
+  if (value === `\${${name}}`) return true;
+
+  const defaultPrefix = `\${${name}:-`;
+  const requiredPrefix = `\${${name}:?`;
+  const operatorPrefix = value.startsWith(defaultPrefix)
+    ? defaultPrefix
+    : value.startsWith(requiredPrefix)
+      ? requiredPrefix
+      : undefined;
   return (
-    value === bareInterpolation ||
-    (value.startsWith(operatorPrefix) &&
-      value.endsWith("}") &&
-      !value.slice(operatorPrefix.length, -1).includes("}"))
+    operatorPrefix !== undefined &&
+    value.endsWith("}") &&
+    !value.slice(operatorPrefix.length, -1).includes("}")
   );
 }
 
@@ -182,6 +188,10 @@ function composeDefaultProblems(
       problems.push(
         `docker-compose.prod.yml pins ${name}; use \${${name}:-} so the app schema supplies its default`,
       );
+    } else {
+      problems.push(
+        `docker-compose.prod.yml pins ${name} without a declared production default; use \${${name}:-} or declare the override in scripts/configuration-stack.ts`,
+      );
     }
   }
   return problems;
@@ -199,9 +209,15 @@ export function checkConfiguration(input: ConfigurationCheckInput): {
   problems: string[];
 } {
   const problems: string[] = [];
-  if (replaceGeneratedTables(input.document) !== input.document) {
+  try {
+    if (replaceGeneratedTables(input.document) !== input.document) {
+      problems.push(
+        "docs/configuration.md is stale; run npm run config:generate",
+      );
+    }
+  } catch {
     problems.push(
-      "docs/configuration.md is stale; run npm run config:generate",
+      "docs/configuration.md must contain valid generated configuration markers",
     );
   }
 
@@ -214,13 +230,15 @@ export function checkConfiguration(input: ConfigurationCheckInput): {
       problems.push(`.env.example omits ${qualifier}variable ${name}`);
       continue;
     }
-    if (schemaRequirementAndDefault(declaration).hasDefault) {
-      const expected = declaration.hostTemplateValue ?? "";
-      if (hostEnvironment.get(name) !== expected) {
-        problems.push(
-          `.env.example must set ${name} to ${expected || "an empty value"}`,
-        );
-      }
+    const expected = declaration.hostTemplateValue ?? "";
+    if (
+      (schemaRequirementAndDefault(declaration).hasDefault ||
+        declaration.hostTemplateValue !== undefined) &&
+      hostEnvironment.get(name) !== expected
+    ) {
+      problems.push(
+        `.env.example must set ${name} to ${expected || "an empty value"}`,
+      );
     }
   }
 

@@ -367,7 +367,8 @@ export const serverVariables = {
     schema: z.string().optional(),
     secret: false,
     consumer: "src/server/telemetry.ts",
-    documentedDefault: "none (host schema); `production` (stack)",
+    documentedDefault: "`development` (host template); `production` (stack)",
+    hostTemplateValue: "development",
     expectation: "an environment label",
   },
   LANGFUSE_RELEASE: {

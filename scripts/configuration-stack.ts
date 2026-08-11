@@ -93,13 +93,9 @@ export const stackVariables = {
     reachesApp: directToApp,
     notes: "Empty enables demo fallback.",
   },
-  MODEL_PROVIDER: {
-    required: false,
-    defaultValue: "empty",
-    consumer: "app environment",
-    reachesApp: directToApp,
-    notes: "Set `mock` for an offline demonstration.",
-  },
+  MODEL_PROVIDER: appSchemaPassThrough(
+    "Set `mock` for an offline demonstration.",
+  ),
   OPENROUTER_APP_TITLE: appSchemaPassThrough("OpenRouter attribution title."),
   MODEL_FAST: appSchemaPassThrough("Model alias override."),
   MODEL_ANALYST: appSchemaPassThrough("Model alias override."),

@@ -146,7 +146,7 @@ entries.
 | `LANGFUSE_PUBLIC_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | a Langfuse public key |
 | `LANGFUSE_SECRET_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | a Langfuse secret key |
 | `LANGFUSE_BASE_URL` | tracing | No | https://cloud.langfuse.com (Langfuse SDK) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an http:// or https:// URL |
-| `LANGFUSE_ENVIRONMENT` | tracing | No | none (host schema); `production` (stack) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an environment label |
+| `LANGFUSE_ENVIRONMENT` | tracing | No | `development` (host template); `production` (stack) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an environment label |
 | `LANGFUSE_RELEASE` | tracing | No | the resolved app version | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/app-version.ts | a release label |
 | `DRAIN_GRACE_MS` | lifecycle | No | `25000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/sweeper.ts | a positive whole number of milliseconds |
 | `NEXT_MANUAL_SIG_HANDLE` | lifecycle | No | none | `Dockerfile` and `docker-compose.prod.yml` | Next.js (set by the Dockerfile and docker-compose.prod.yml) | a truthy string enabling the app's own SIGTERM handler |
@@ -192,7 +192,7 @@ reference.
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | stack | Yes | none | `deploy/aws.env` or `deploy/rehearsal.env` | Docker build arg and app environment | Yes | Changing it requires a rebuild. |
 | `CLERK_SECRET_KEY` | stack | Yes | none | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Server-side Clerk credential. |
 | `OPENROUTER_API_KEY` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty enables demo fallback. |
-| `MODEL_PROVIDER` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Set `mock` for an offline demonstration. |
+| `MODEL_PROVIDER` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Set `mock` for an offline demonstration. |
 | `OPENROUTER_APP_TITLE` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. OpenRouter attribution title. |
 | `MODEL_FAST` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
 | `MODEL_ANALYST` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
