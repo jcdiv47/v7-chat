@@ -107,6 +107,20 @@ describe("configuration checks", () => {
     ).toEqual([]);
   });
 
+  it("reports malformed reference markers alongside other configuration problems", () => {
+    const result = checkConfiguration({
+      ...validInput({}, ["SQL_MAX_RESULT_BYTES"]),
+      document: "configuration reference without generated-table markers",
+    });
+
+    expect(result.problems).toContain(
+      "docs/configuration.md must contain valid generated configuration markers",
+    );
+    expect(result.problems).toContain(
+      "docker-compose.prod.yml omits SQL_MAX_RESULT_BYTES, which is declared as reaching the app",
+    );
+  });
+
   it("reports a stale committed reference", () => {
     const result = checkConfiguration({
       document: [
@@ -150,6 +164,21 @@ describe("configuration checks", () => {
 
     expect(result.problems).toContain(
       ".env.example omits required variable CLERK_SECRET_KEY",
+    );
+  });
+
+  it("enforces a declared host-template default when the app schema has none", () => {
+    const input = validInput({});
+    const result = checkConfiguration({
+      ...input,
+      hostTemplate: input.hostTemplate.replace(
+        "LANGFUSE_ENVIRONMENT=",
+        "LANGFUSE_ENVIRONMENT=staging",
+      ),
+    });
+
+    expect(result.problems).toContain(
+      ".env.example must set LANGFUSE_ENVIRONMENT to development",
     );
   });
 
@@ -249,16 +278,30 @@ describe("configuration checks", () => {
     );
   });
 
-  it("accepts pass-throughs and a default for an app variable with no schema default", () => {
+  it("accepts pass-throughs and a declared default for an app variable with no schema default", () => {
     const result = checkConfiguration(
       validInput({
         SQL_MAX_ROWS: "${SQL_MAX_ROWS:-}",
-        APP_VERSION: "${APP_VERSION:-v1.2.3}",
+        APP_VERSION: "${APP_VERSION:-}",
+        LANGFUSE_ENVIRONMENT: "${LANGFUSE_ENVIRONMENT:-production}",
       }),
     );
 
     expect(result.problems).toEqual([]);
   });
+
+  it.each(["APP_VERSION", "UNDECLARED_VARIABLE"])(
+    "reports an undeclared production default for %s",
+    (name) => {
+      const result = checkConfiguration(
+        validInput({ [name]: `\${${name}:-v1.2.3}` }),
+      );
+
+      expect(result.problems).toContain(
+        `docker-compose.prod.yml pins ${name} without a declared production default; use \${${name}:-} or declare the override in scripts/configuration-stack.ts`,
+      );
+    },
+  );
 
   it("reports a variable declared as reaching the app when Compose omits it", () => {
     const result = checkConfiguration(
@@ -282,8 +325,8 @@ describe("configuration checks", () => {
     expect(result.problems).toEqual([]);
   });
 
-  it.each(["700000", "${OTHER:-}"])(
-    "reports an app-reachable variable that does not interpolate itself: %s",
+  it.each(["700000", "${OTHER:-}", "${SQL_MAX_RESULT_BYTES:+700000}"])(
+    "reports an app-reachable variable that does not forward its configured value: %s",
     (value) => {
       const result = checkConfiguration(
         validInput({ SQL_MAX_RESULT_BYTES: value }),
