@@ -3,11 +3,11 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { serverVariables, type VariableTable } from "../src/env/variables";
 import {
-  composeDefaultInterpolation,
   describeAppReachability,
   stackVariables,
   type StackVariableTable,
 } from "./configuration-stack";
+import { composeAppEnvironment } from "./compose-environment";
 
 const HOST_START = "<!-- BEGIN GENERATED HOST CONFIGURATION -->";
 const HOST_END = "<!-- END GENERATED HOST CONFIGURATION -->";
@@ -52,12 +52,15 @@ export function renderHostVariableTable(
     const documentedDefault =
       declaration.documentedDefault ??
       (defaultValue === "none" ? "none" : code(defaultValue));
-    return `| ${code(name)} | ${markdown(declaration.capability)} | ${markdown(documentedRequirement)} | ${markdown(documentedDefault)} | ${markdown(declaration.consumer)} | ${markdown(declaration.notes ?? declaration.expectation)} |`;
+    const documentedSource =
+      declaration.documentedSource ??
+      "`.env.local` (development); `docker-compose.prod.yml` (production)";
+    return `| ${code(name)} | ${markdown(declaration.capability)} | ${markdown(documentedRequirement)} | ${markdown(documentedDefault)} | ${markdown(documentedSource)} | ${markdown(declaration.consumer)} | ${markdown(declaration.notes ?? declaration.expectation)} |`;
   });
 
   return [
-    "| Variable | Capability | Required | Default | Read by | Notes |",
-    "| --- | --- | --- | --- | --- | --- |",
+    "| Variable | Capability | Required | Default | Set by | Read by | Notes |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
     ...rows,
   ].join("\n");
 }
@@ -67,11 +70,11 @@ export function renderStackVariableTable(
   declarations: StackVariableTable = stackVariables,
 ): string {
   const rows = Object.entries(declarations).map(([name, declaration]) =>
-    `| ${code(name)} | stack | ${declaration.required ? "Yes" : "No"} | ${declaration.defaultValue === undefined ? "none" : code(declaration.defaultValue)} | ${markdown(declaration.consumer)} | ${markdown(describeAppReachability(declaration.reachesApp))} | ${markdown(declaration.notes)} |`,
+    `| ${code(name)} | stack | ${declaration.required ? "Yes" : "No"} | ${declaration.defaultValue === undefined ? "none" : code(declaration.defaultValue)} | ${code("deploy/aws.env")} or ${code("deploy/rehearsal.env")} | ${markdown(declaration.consumer)} | ${markdown(describeAppReachability(declaration.reachesApp))} | ${markdown(declaration.notes)} |`,
   );
   return [
-    "| Variable | Capability | Required | Default | Consumed by | Reaches the app? | Notes |",
-    "| --- | --- | --- | --- | --- | --- | --- |",
+    "| Variable | Capability | Required | Default | Set by | Consumed by | Reaches the app? | Notes |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows,
   ].join("\n");
 }
@@ -109,105 +112,20 @@ export function replaceGeneratedTables(document: string): string {
   );
 }
 
-function templateVariables(template: string): Set<string> {
-  const names = new Set<string>();
+function templateEnvironment(template: string): Map<string, string> {
+  const values = new Map<string, string>();
   for (const line of template.split("\n")) {
-    const match = line.match(/^\s*#?\s*([A-Z][A-Z0-9_]*)\s*=/);
-    if (match?.[1]) names.add(match[1]);
+    const match = line.match(/^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match?.[1] || match[2] === undefined) continue;
+    values.set(match[1], match[2].trim());
   }
-  return names;
+  return values;
 }
 
-function requiredHostVariables(table: VariableTable): string[] {
-  return Object.entries(table)
-    .filter(([, declaration]) => schemaRequirementAndDefault(declaration).required)
-    .map(([name]) => name);
-}
-
-function indentOf(line: string): number {
-  return line.match(/^\s*/)?.[0].length ?? 0;
-}
-
-function childIndex(
-  lines: string[],
-  parentIndex: number,
-  key: string,
-): number | undefined {
-  const parentIndent = indentOf(lines[parentIndex] ?? "");
-  let childIndent: number | undefined;
-  for (let index = parentIndex + 1; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const indent = indentOf(line);
-    if (indent <= parentIndent) break;
-    childIndent ??= indent;
-    if (indent === childIndent && line.trim() === `${key}:`) return index;
-  }
-  return undefined;
-}
-
-function stripYamlComment(value: string): string {
-  let quote: "'" | '"' | undefined;
-  for (let index = 0; index < value.length; index += 1) {
-    const character = value[index];
-    if (quote === "'" && character === "'") {
-      if (value[index + 1] === "'") index += 1;
-      else quote = undefined;
-    } else if (quote === '"' && character === "\\") {
-      index += 1;
-    } else if (quote === '"' && character === '"') {
-      quote = undefined;
-    } else if (!quote && (character === "'" || character === '"')) {
-      quote = character;
-    } else if (
-      !quote &&
-      character === "#" &&
-      (index === 0 || /\s/.test(value[index - 1] ?? ""))
-    ) {
-      return value.slice(0, index).trimEnd();
-    }
-  }
-  return value;
-}
-
-function normalizeYamlScalar(value: string): string {
-  const uncommented = stripYamlComment(value);
-  const quote = uncommented[0];
-  return uncommented.length >= 2 &&
-    (quote === '"' || quote === "'") &&
-    uncommented.at(-1) === quote
-    ? uncommented.slice(1, -1)
-    : uncommented;
-}
-
-type ComposeEnvironmentResult =
-  | { environment: Map<string, string> }
-  | { problem: string };
-
-/** Scan only the app service's environment block; no YAML features are needed. */
-function composeAppEnvironment(composeFile: string): ComposeEnvironmentResult {
-  const problem =
-    "could not locate the app service environment in docker-compose.prod.yml";
-  const lines = composeFile.split("\n");
-  const servicesIndex = lines.findIndex((line) => /^services:\s*$/.test(line));
-  if (servicesIndex < 0) return { problem };
-  const appIndex = childIndex(lines, servicesIndex, "app");
-  if (appIndex === undefined) return { problem };
-  const environmentIndex = childIndex(lines, appIndex, "environment");
-  if (environmentIndex === undefined) return { problem };
-
-  const environmentIndent = indentOf(lines[environmentIndex] ?? "");
-  const environment = new Map<string, string>();
-  for (let index = environmentIndex + 1; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    if (indentOf(line) <= environmentIndent) break;
-    const entry = line.match(/^\s*([A-Z][A-Z0-9_]*):\s*(.*?)\s*$/);
-    if (entry?.[1] && entry[2] !== undefined) {
-      environment.set(entry[1], normalizeYamlScalar(entry[2]));
-    }
-  }
-  return { environment };
+function hostTemplateVariables(table: VariableTable): [string, VariableTable[string]][] {
+  return Object.entries(table).filter(
+    ([, declaration]) => declaration.hostTemplate !== false,
+  );
 }
 
 function directlyInterpolates(name: string, value: string): boolean {
@@ -229,7 +147,7 @@ function composeDefaultProblems(
   for (const [name, declaration] of Object.entries(declarations)) {
     const composeValue = environment.get(name);
     if (declaration.pinComposeDefault) {
-      const expected = composeDefaultInterpolation(name, declaration);
+      const expected = `\${${name}:-${declaration.defaultValue}}`;
       if (composeValue !== expected) {
         problems.push(
           `docker-compose.prod.yml must pin ${name} to its declared production default ${declaration.defaultValue}`,
@@ -237,7 +155,10 @@ function composeDefaultProblems(
       }
       continue;
     }
-    if (declaration.reachesApp !== "yes") continue;
+    if (
+      declaration.reachesApp === false ||
+      declaration.reachesApp.kind !== "direct"
+    ) continue;
     if (composeValue === undefined) {
       problems.push(
         `docker-compose.prod.yml omits ${name}, which is declared as reaching the app`,
@@ -273,7 +194,7 @@ export type ConfigurationCheckInput = {
   composeFile: string;
 };
 
-/** Check committed output and ensure templates expose every required input. */
+/** Check committed output and ensure templates expose every configurable input. */
 export function checkConfiguration(input: ConfigurationCheckInput): {
   problems: string[];
 } {
@@ -284,18 +205,42 @@ export function checkConfiguration(input: ConfigurationCheckInput): {
     );
   }
 
-  const hostNames = templateVariables(input.hostTemplate);
-  for (const name of requiredHostVariables(serverVariables)) {
-    if (!hostNames.has(name)) {
-      problems.push(`.env.example omits required variable ${name}`);
+  const hostEnvironment = templateEnvironment(input.hostTemplate);
+  for (const [name, declaration] of hostTemplateVariables(serverVariables)) {
+    if (!hostEnvironment.has(name)) {
+      const qualifier = schemaRequirementAndDefault(declaration).required
+        ? "required "
+        : "declared ";
+      problems.push(`.env.example omits ${qualifier}variable ${name}`);
+      continue;
+    }
+    if (schemaRequirementAndDefault(declaration).hasDefault) {
+      const expected = declaration.hostTemplateValue ?? "";
+      if (hostEnvironment.get(name) !== expected) {
+        problems.push(
+          `.env.example must set ${name} to ${expected || "an empty value"}`,
+        );
+      }
     }
   }
 
-  const stackNames = templateVariables(input.stackTemplate);
-  for (const [name, declaration] of Object.entries(stackVariables)) {
-    if (declaration.required && !stackNames.has(name)) {
+  const stackEnvironment = templateEnvironment(input.stackTemplate);
+  const stackDeclarations: StackVariableTable = stackVariables;
+  for (const [name, declaration] of Object.entries(stackDeclarations)) {
+    if (!stackEnvironment.has(name)) {
+      const qualifier = declaration.required ? "required " : "declared ";
       problems.push(
-        `deploy/stack.env.example omits required variable ${name}`,
+        `deploy/stack.env.example omits ${qualifier}variable ${name}`,
+      );
+      continue;
+    }
+    if (declaration.required) continue;
+    const expected = declaration.pinComposeDefault
+      ? declaration.defaultValue
+      : "";
+    if (stackEnvironment.get(name) !== expected) {
+      problems.push(
+        `deploy/stack.env.example must set ${name} to ${expected || "an empty value"}`,
       );
     }
   }

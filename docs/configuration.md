@@ -117,47 +117,61 @@ by hand. Run `npm run config:generate` after changing either declaration;
 entries.
 
 <!-- BEGIN GENERATED HOST CONFIGURATION -->
-| Variable | Capability | Required | Default | Read by | Notes |
-| --- | --- | --- | --- | --- | --- |
-| `DATABASE_URL` | core | Yes (app); No (Drizzle CLI) | none (app); `postgres://v7:v7@localhost:5433/v7_chat` (Drizzle CLI) | src/server/db/client.ts, drizzle.config.ts | a Postgres connection URL (postgres:// or postgresql://) |
-| `CLERK_SECRET_KEY` | core | Yes | none | Clerk SDK (server) | a Clerk secret key |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | core | Yes | none | Clerk SDK (clerkMiddleware in src/proxy.ts, React providers) | a Clerk publishable key |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | core | No | `/sign-in` | Clerk SDK | a path to the sign-in page |
-| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | core | No | `/sign-up` | Clerk SDK | a path to the sign-up page |
-| `NEXT_PUBLIC_APP_VERSION` | tracing | No | none | src/lib/app-version.ts | Used after APP_VERSION and before package.json; inlined into client code at build time. |
-| `MODEL_PROVIDER` | model-provider | No | `openrouter` | src/lib/models/registry.ts | one of: openrouter, mock |
-| `OPENROUTER_API_KEY` | model-provider | No | none | src/lib/models/registry.ts | an OpenRouter API key |
-| `OPENROUTER_APP_URL` | model-provider | No | `http://localhost:3000` | src/lib/models/registry.ts (HTTP-Referer attribution header) | an http:// or https:// URL |
-| `OPENROUTER_APP_TITLE` | model-provider | No | `v7 Business Analyst` | src/lib/models/registry.ts (X-Title attribution header) | a title string |
-| `MODEL_FAST` | model-provider | No | `openai/gpt-oss-120b:nitro` | src/lib/models/registry.ts | an OpenRouter model ID for the `fast` alias |
-| `MODEL_ANALYST` | model-provider | No | `z-ai/glm-5.2:nitro` | src/lib/models/registry.ts | an OpenRouter model ID for the `analyst` alias |
-| `MODEL_SQL` | model-provider | No | `moonshotai/kimi-k2.6` | src/lib/models/registry.ts | an OpenRouter model ID for the `sql` alias |
-| `MODEL_SUMMARIZER` | model-provider | No | `openai/gpt-oss-120b:nitro` | src/lib/models/registry.ts | an OpenRouter model ID for the `summarizer` alias |
-| `MODEL_FAST_REASONING` | model-provider | No | `low` | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
-| `MODEL_ANALYST_REASONING` | model-provider | No | `low` | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
-| `MODEL_SQL_REASONING` | model-provider | No | `low` | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
-| `MODEL_SUMMARIZER_REASONING` | model-provider | No | `low` | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
-| `INTERMEDIATE_DATABASE_URL` | analytical-database | No | none | src/server/worker-deps.ts, tui/index.ts, evals/run.ts, scripts/seed-db.ts | a Postgres connection URL (postgres:// or postgresql://) |
-| `SEED_DATABASE_URL` | analytical-database | No | none | scripts/seed-db.ts | a writable Postgres connection URL |
-| `SQL_STATEMENT_TIMEOUT_MS` | analytical-database | No | `10000` | src/lib/sql/executor.ts | a positive whole number of milliseconds |
-| `SQL_MAX_ROWS` | analytical-database | No | `500` | src/lib/sql/executor.ts | a positive whole number of rows |
-| `SQL_MAX_RESULT_BYTES` | analytical-database | No | `700000` | src/lib/sql/executor.ts | Bounds serialized and persisted table artifacts. |
-| `APP_VERSION` | tracing | No | none | src/lib/app-version.ts | a version string |
-| `LANGFUSE_PUBLIC_KEY` | tracing | No | none | src/server/telemetry.ts | a Langfuse public key |
-| `LANGFUSE_SECRET_KEY` | tracing | No | none | src/server/telemetry.ts | a Langfuse secret key |
-| `LANGFUSE_BASE_URL` | tracing | No | none | src/server/telemetry.ts | an http:// or https:// URL |
-| `LANGFUSE_ENVIRONMENT` | tracing | No | none | src/server/telemetry.ts | an environment label |
-| `LANGFUSE_RELEASE` | tracing | No | none | src/lib/app-version.ts | a release label |
-| `DRAIN_GRACE_MS` | lifecycle | No | `25000` | src/server/sweeper.ts | a positive whole number of milliseconds |
-| `NEXT_MANUAL_SIG_HANDLE` | lifecycle | No | none | Next.js (set by the Dockerfile and docker-compose.prod.yml) | a truthy string enabling the app's own SIGTERM handler |
+| Variable | Capability | Required | Default | Set by | Read by | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| `DATABASE_URL` | core | Yes (app); No (Drizzle CLI) | none (app); `postgres://v7:v7@localhost:5433/v7_chat` (Drizzle CLI) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/db/client.ts, drizzle.config.ts | a Postgres connection URL (postgres:// or postgresql://) |
+| `CLERK_SECRET_KEY` | core | Yes | none | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK (server) | a Clerk secret key |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | core | Yes | none | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK (clerkMiddleware in src/proxy.ts, React providers) | a Clerk publishable key |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | core | No | `/sign-in` | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK | a path to the sign-in page |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | core | No | `/sign-up` | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK | a path to the sign-up page |
+| `NEXT_PUBLIC_APP_VERSION` | tracing | No | none | `.env.local` for next dev/build; not exposed by the production stack | src/lib/app-version.ts | Used after APP_VERSION and before package.json; inlined at build time when referenced by client code. |
+| `MODEL_PROVIDER` | model-provider | No | `openrouter` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: openrouter, mock |
+| `OPENROUTER_API_KEY` | model-provider | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter API key |
+| `OPENROUTER_APP_URL` | model-provider | No | `http://localhost:3000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts (HTTP-Referer attribution header) | an http:// or https:// URL |
+| `OPENROUTER_APP_TITLE` | model-provider | No | `v7 Business Analyst` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts (X-Title attribution header) | a title string |
+| `MODEL_FAST` | model-provider | No | `openai/gpt-oss-120b:nitro` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter model ID for the `fast` alias |
+| `MODEL_ANALYST` | model-provider | No | `z-ai/glm-5.2:nitro` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter model ID for the `analyst` alias |
+| `MODEL_SQL` | model-provider | No | `moonshotai/kimi-k2.6` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter model ID for the `sql` alias |
+| `MODEL_SUMMARIZER` | model-provider | No | `openai/gpt-oss-120b:nitro` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter model ID for the `summarizer` alias |
+| `MODEL_FAST_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
+| `MODEL_ANALYST_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
+| `MODEL_SQL_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
+| `MODEL_SUMMARIZER_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
+| `INTERMEDIATE_DATABASE_URL` | analytical-database | Yes (web agent); No (TUI and eval runner) | none (web agent); in-process PGlite sample database (TUI and eval runner) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/worker-deps.ts, tui/index.ts, evals/run.ts, scripts/seed-db.ts | The web agent throws when an analytical tool first needs an unset URL. The TUI and eval runner instead use seeded in-process PGlite. |
+| `SEED_DATABASE_URL` | analytical-database | No (but the seed script requires this or INTERMEDIATE_DATABASE_URL) | INTERMEDIATE_DATABASE_URL | `.env.local` or the invoking shell | scripts/seed-db.ts | Use a writable admin connection; the app's analytical login should remain read-only. |
+| `SQL_STATEMENT_TIMEOUT_MS` | analytical-database | No | `10000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/sql/executor.ts | a positive whole number of milliseconds |
+| `SQL_MAX_ROWS` | analytical-database | No | `500` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/sql/executor.ts | a positive whole number of rows |
+| `SQL_MAX_RESULT_BYTES` | analytical-database | No | `700000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/sql/executor.ts | Bounds serialized and persisted table artifacts. |
+| `APP_VERSION` | tracing | No | NEXT_PUBLIC_APP_VERSION, then the version in package.json | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/app-version.ts | a version string |
+| `LANGFUSE_PUBLIC_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | a Langfuse public key |
+| `LANGFUSE_SECRET_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | a Langfuse secret key |
+| `LANGFUSE_BASE_URL` | tracing | No | https://cloud.langfuse.com (Langfuse SDK) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an http:// or https:// URL |
+| `LANGFUSE_ENVIRONMENT` | tracing | No | none (host schema); `production` (stack) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an environment label |
+| `LANGFUSE_RELEASE` | tracing | No | the resolved app version | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/app-version.ts | a release label |
+| `DRAIN_GRACE_MS` | lifecycle | No | `25000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/sweeper.ts | a positive whole number of milliseconds |
+| `NEXT_MANUAL_SIG_HANDLE` | lifecycle | No | none | `Dockerfile` and `docker-compose.prod.yml` | Next.js (set by the Dockerfile and docker-compose.prod.yml) | a truthy string enabling the app's own SIGTERM handler |
 <!-- END GENERATED HOST CONFIGURATION -->
 
 ### Platform-provided runtime values
 
-`NEXT_RUNTIME`, `NODE_ENV`, `PORT`, `HOSTNAME`, and
-`NEXT_TELEMETRY_DISABLED` are supplied by Next.js or the Docker runtime rather
-than by app configuration, so they deliberately stay outside the app schema.
-See `src/env/variables.ts` for the fixed values and consumers.
+These are environment variables, but not configuration inputs: Next.js or the
+container runtime supplies them, so they deliberately stay outside the app
+schema and both templates.
+
+| Variable | Required | Default | Set by | Read by | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `NEXT_RUNTIME` | No | set to `nodejs` for the server runtime | Next.js | `src/instrumentation.ts` | Server instrumentation boots only in the Node.js runtime. |
+| `NODE_ENV` | No | command-dependent; `production` in the image | Next.js / `Dockerfile` | Next.js | Selects development or production behavior. |
+| `PORT` | No | `3000` in the image | `Dockerfile` | Next.js standalone server | Container listen port. |
+| `HOSTNAME` | No | `0.0.0.0` in the image | `Dockerfile` | Next.js standalone server | Allows the container to accept network traffic. |
+| `NEXT_TELEMETRY_DISABLED` | No | unset in development; `1` in the image | `Dockerfile` | Next.js | Disables Next.js telemetry in image builds and at runtime. |
+
+The database images also receive fixed internal variables from
+`docker-compose.prod.yml`: `POSTGRES_USER`, `POSTGRES_DB`, and
+`POSTGRES_PASSWORD`. The intermediate database's initialization script reads
+the first two plus `INTERMEDIATE_READONLY_PASSWORD`; the stack table documents
+the human-supplied password inputs from which Compose sets them. These fixed
+container values are not additional configuration inputs.
 
 ## Stack configuration
 
@@ -168,36 +182,36 @@ fails the `up` with a message naming the stack surface and pointing back to this
 reference.
 
 <!-- BEGIN GENERATED STACK CONFIGURATION -->
-| Variable | Capability | Required | Default | Consumed by | Reaches the app? | Notes |
-| --- | --- | --- | --- | --- | --- | --- |
-| `DOMAIN` | stack | Yes | none | caddy service, OPENROUTER_APP_URL | Only as `https://${DOMAIN}` | Point DNS at the host before starting Caddy; use `localhost` for rehearsal. |
-| `ACME_EMAIL` | stack | Yes | none | caddy service | No | Let's Encrypt expiry notices. |
-| `APP_DB_PASSWORD` | stack | Yes | none | app-db, DATABASE_URL assembly | Only inside DATABASE_URL | Generate with `openssl rand -hex 32`. |
-| `INTERMEDIATE_ADMIN_PASSWORD` | stack | Yes | none | intermediate-db | No | Admin login used by CSV imports, never by the agent. |
-| `INTERMEDIATE_READONLY_PASSWORD` | stack | Yes | none | init-intermediate.sh, INTERMEDIATE_DATABASE_URL assembly | Only inside INTERMEDIATE_DATABASE_URL | The agent's read-only login. |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | stack | Yes | none | Docker build arg and app environment | Yes | Changing it requires a rebuild. |
-| `CLERK_SECRET_KEY` | stack | Yes | none | app environment | Yes | Server-side Clerk credential. |
-| `OPENROUTER_API_KEY` | stack | No | `empty` | app environment | Yes | Empty enables demo fallback. |
-| `MODEL_PROVIDER` | stack | No | `empty` | app environment | Yes | Set `mock` for an offline demonstration. |
-| `OPENROUTER_APP_TITLE` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. OpenRouter attribution title. |
-| `MODEL_FAST` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's model alias default. |
-| `MODEL_ANALYST` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's model alias default. |
-| `MODEL_SQL` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's model alias default. |
-| `MODEL_SUMMARIZER` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's model alias default. |
-| `MODEL_FAST_REASONING` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
-| `MODEL_ANALYST_REASONING` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
-| `MODEL_SQL_REASONING` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
-| `MODEL_SUMMARIZER_REASONING` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
-| `SQL_STATEMENT_TIMEOUT_MS` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Per-query timeout in milliseconds. |
-| `SQL_MAX_ROWS` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Maximum rows returned by a query. |
-| `SQL_MAX_RESULT_BYTES` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Maximum serialized size of a persisted table artifact. |
-| `DRAIN_GRACE_MS` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Keep below Compose's 40 second stop grace period. |
-| `APP_VERSION` | stack | No | `empty` | app environment | Yes | App version used by tracing and command-line output. |
-| `LANGFUSE_PUBLIC_KEY` | stack | No | `empty` | app environment | Yes | Tracing requires both Langfuse keys. |
-| `LANGFUSE_SECRET_KEY` | stack | No | `empty` | app environment | Yes | Tracing requires both Langfuse keys. |
-| `LANGFUSE_BASE_URL` | stack | No | `empty` | app environment | Yes | Region-specific or self-hosted Langfuse URL. |
-| `LANGFUSE_ENVIRONMENT` | stack | No | `production` | app environment | Yes | Environment label on traces. |
-| `LANGFUSE_RELEASE` | stack | No | `empty` | app environment | Yes | Release label on traces. |
+| Variable | Capability | Required | Default | Set by | Consumed by | Reaches the app? | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `DOMAIN` | stack | Yes | none | `deploy/aws.env` or `deploy/rehearsal.env` | caddy service, OPENROUTER_APP_URL | Only as `https://${DOMAIN}` | Point DNS at the host before starting Caddy; use `localhost` for rehearsal. |
+| `ACME_EMAIL` | stack | Yes | none | `deploy/aws.env` or `deploy/rehearsal.env` | caddy service | No | Let's Encrypt expiry notices. |
+| `APP_DB_PASSWORD` | stack | Yes | none | `deploy/aws.env` or `deploy/rehearsal.env` | app-db, DATABASE_URL assembly | Only inside DATABASE_URL | Generate with `openssl rand -hex 32`. |
+| `INTERMEDIATE_ADMIN_PASSWORD` | stack | Yes | none | `deploy/aws.env` or `deploy/rehearsal.env` | intermediate-db | No | Admin login used by CSV imports, never by the agent. |
+| `INTERMEDIATE_READONLY_PASSWORD` | stack | Yes | none | `deploy/aws.env` or `deploy/rehearsal.env` | init-intermediate.sh, INTERMEDIATE_DATABASE_URL assembly | Only inside INTERMEDIATE_DATABASE_URL | The agent's read-only login. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | stack | Yes | none | `deploy/aws.env` or `deploy/rehearsal.env` | Docker build arg and app environment | Yes | Changing it requires a rebuild. |
+| `CLERK_SECRET_KEY` | stack | Yes | none | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Server-side Clerk credential. |
+| `OPENROUTER_API_KEY` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty enables demo fallback. |
+| `MODEL_PROVIDER` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Set `mock` for an offline demonstration. |
+| `OPENROUTER_APP_TITLE` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. OpenRouter attribution title. |
+| `MODEL_FAST` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
+| `MODEL_ANALYST` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
+| `MODEL_SQL` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
+| `MODEL_SUMMARIZER` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Model alias override. |
+| `MODEL_FAST_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Reasoning-effort override. |
+| `MODEL_ANALYST_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Reasoning-effort override. |
+| `MODEL_SQL_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Reasoning-effort override. |
+| `MODEL_SUMMARIZER_REASONING` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Reasoning-effort override. |
+| `SQL_STATEMENT_TIMEOUT_MS` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Per-query timeout in milliseconds. |
+| `SQL_MAX_ROWS` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Maximum rows returned by a query. |
+| `SQL_MAX_RESULT_BYTES` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Maximum serialized size of a persisted table artifact. |
+| `DRAIN_GRACE_MS` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Empty falls back to the app schema. Keep below Compose's 40 second stop grace period. |
+| `APP_VERSION` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | App version used by tracing and command-line output. |
+| `LANGFUSE_PUBLIC_KEY` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Tracing requires both Langfuse keys. |
+| `LANGFUSE_SECRET_KEY` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Tracing requires both Langfuse keys. |
+| `LANGFUSE_BASE_URL` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Region-specific or self-hosted Langfuse URL. |
+| `LANGFUSE_ENVIRONMENT` | stack | No | `production` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Environment label on traces. |
+| `LANGFUSE_RELEASE` | stack | No | `empty` | `deploy/aws.env` or `deploy/rehearsal.env` | app environment | Yes | Release label on traces. |
 <!-- END GENERATED STACK CONFIGURATION -->
 
 Everything else the app process sees in production is fixed by the Compose file

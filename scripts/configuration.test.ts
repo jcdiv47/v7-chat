@@ -9,7 +9,6 @@ import {
   replaceGeneratedTables,
 } from "./configuration";
 import {
-  composeDefaultInterpolation,
   stackVariables,
   type StackVariableTable,
 } from "./configuration-stack";
@@ -28,7 +27,28 @@ describe("configuration reference generation", () => {
     } satisfies VariableTable;
 
     expect(renderHostVariableTable(declarations)).toContain(
-      "| `TEST_AUTO_DOCUMENTED` | tracing | No | `from-schema` | test consumer | Added only to the schema fixture. |",
+      "| `TEST_AUTO_DOCUMENTED` | tracing | No | `from-schema` | `.env.local` (development); `docker-compose.prod.yml` (production) | test consumer | Added only to the schema fixture. |",
+    );
+  });
+
+  it("states which file sets variables on both surfaces", () => {
+    expect(renderHostVariableTable(serverVariables)).toContain("| Set by | Read by |");
+    expect(renderStackVariableTable()).toContain(
+      "| Set by | Consumed by | Reaches the app? |",
+    );
+    expect(renderStackVariableTable()).toContain(
+      "| `deploy/aws.env` or `deploy/rehearsal.env` |",
+    );
+  });
+
+  it("documents the analytical database fallbacks by consumer", () => {
+    const table = renderHostVariableTable(serverVariables);
+
+    expect(table).toContain(
+      "none (web agent); in-process PGlite sample database (TUI and eval runner)",
+    );
+    expect(table).toContain(
+      "| `SEED_DATABASE_URL` | analytical-database | No (but the seed script requires this or INTERMEDIATE_DATABASE_URL) | INTERMEDIATE_DATABASE_URL |",
     );
   });
 
@@ -130,6 +150,84 @@ describe("configuration checks", () => {
 
     expect(result.problems).toContain(
       ".env.example omits required variable CLERK_SECRET_KEY",
+    );
+  });
+
+  it("reports schema defaults pinned in the host template", () => {
+    const result = checkConfiguration({
+      ...validInput({}),
+      hostTemplate: Object.entries(serverVariables as VariableTable)
+        .map(([name, declaration]) =>
+          `${name}=${name === "SQL_MAX_RESULT_BYTES" ? "700000" : declaration.hostTemplateValue ?? ""}`,
+        )
+        .join("\n"),
+    });
+
+    expect(result.problems).toContain(
+      ".env.example must set SQL_MAX_RESULT_BYTES to an empty value",
+    );
+  });
+
+  it("reports defaults pinned in the stack template", () => {
+    const result = checkConfiguration({
+      ...validInput({}),
+      stackTemplate: Object.keys(stackVariables)
+        .map((name) => {
+          const value =
+            name === "SQL_MAX_ROWS"
+              ? "500"
+              : name === "LANGFUSE_ENVIRONMENT"
+                ? "production"
+                : "";
+          return `${name}=${value}`;
+        })
+        .join("\n"),
+    });
+
+    expect(result.problems).toContain(
+      "deploy/stack.env.example must set SQL_MAX_ROWS to an empty value",
+    );
+    expect(result.problems).not.toContain(
+      "deploy/stack.env.example must set LANGFUSE_ENVIRONMENT to production",
+    );
+  });
+
+  it("treats an inline stack-template comment as a value", () => {
+    const input = validInput({});
+    const result = checkConfiguration({
+      ...input,
+      stackTemplate: input.stackTemplate.replace(
+        "SQL_MAX_ROWS=",
+        "SQL_MAX_ROWS= # not empty in a Compose env file",
+      ),
+    });
+
+    expect(result.problems).toContain(
+      "deploy/stack.env.example must set SQL_MAX_ROWS to an empty value",
+    );
+  });
+
+  it("reports optional declared variables omitted from either template", () => {
+    const hostTemplate = Object.keys(serverVariables)
+      .filter((name) => name !== "NEXT_PUBLIC_APP_VERSION")
+      .map((name) => `${name}=`)
+      .join("\n");
+    const stackTemplate = Object.keys(stackVariables)
+      .filter((name) => name !== "SQL_MAX_RESULT_BYTES")
+      .map((name) => `${name}=`)
+      .join("\n");
+
+    const result = checkConfiguration({
+      ...validInput({}),
+      hostTemplate,
+      stackTemplate,
+    });
+
+    expect(result.problems).toContain(
+      ".env.example omits declared variable NEXT_PUBLIC_APP_VERSION",
+    );
+    expect(result.problems).toContain(
+      "deploy/stack.env.example omits declared variable SQL_MAX_RESULT_BYTES",
     );
   });
 
@@ -279,11 +377,13 @@ function validComposeEnvironment(
     Object.entries(stackDeclarations)
       .filter(
         ([name, declaration]) =>
-          declaration.reachesApp === "yes" && !omittedNames.has(name),
+          declaration.reachesApp !== false &&
+          declaration.reachesApp.kind === "direct" &&
+          !omittedNames.has(name),
       )
       .map(([name, declaration]) => [
         name,
-        composeDefaultInterpolation(name, declaration),
+        `\${${name}:-${declaration.pinComposeDefault ? declaration.defaultValue : ""}}`,
       ]),
   );
   for (const [name, value] of Object.entries(overrides)) {
@@ -298,6 +398,7 @@ function validInput(
   overrides: Record<string, string>,
   omitted: string[] = [],
 ) {
+  const stackDeclarations: StackVariableTable = stackVariables;
   return {
     document: [
       "<!-- BEGIN GENERATED HOST CONFIGURATION -->",
@@ -307,11 +408,15 @@ function validInput(
       renderStackVariableTable(stackVariables),
       "<!-- END GENERATED STACK CONFIGURATION -->",
     ].join("\n"),
-    hostTemplate: Object.keys(serverVariables)
-      .map((name) => `${name}=`)
+    hostTemplate: Object.entries(serverVariables as VariableTable)
+      .map(([name, declaration]) =>
+        `${name}=${declaration.hostTemplateValue ?? ""}`,
+      )
       .join("\n"),
-    stackTemplate: Object.keys(stackVariables)
-      .map((name) => `${name}=`)
+    stackTemplate: Object.entries(stackDeclarations)
+      .map(([name, declaration]) =>
+        `${name}=${declaration.pinComposeDefault ? declaration.defaultValue : ""}`,
+      )
       .join("\n"),
     composeFile: `services:\n  app:\n    environment:\n${validComposeEnvironment(overrides, omitted)}\n`,
   };
