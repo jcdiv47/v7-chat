@@ -1,6 +1,8 @@
 export type StackVariableDeclaration = {
   required: boolean;
   defaultValue?: string;
+  /** Intentional Compose default when it must override an app-schema default. */
+  productionDefault?: string;
   consumer: string;
   reachesApp: string;
   notes: string;
@@ -69,13 +71,7 @@ export const stackVariables = {
     reachesApp: "Yes",
     notes: "Set `mock` for an offline demonstration.",
   },
-  OPENROUTER_APP_TITLE: {
-    required: false,
-    defaultValue: "v7 Business Analyst",
-    consumer: "app environment",
-    reachesApp: "Yes",
-    notes: "OpenRouter attribution title.",
-  },
+  OPENROUTER_APP_TITLE: appSchemaDefault("OpenRouter attribution title."),
   MODEL_FAST: modelOverride(),
   MODEL_ANALYST: modelOverride(),
   MODEL_SQL: modelOverride(),
@@ -84,9 +80,9 @@ export const stackVariables = {
   MODEL_ANALYST_REASONING: reasoningOverride(),
   MODEL_SQL_REASONING: reasoningOverride(),
   MODEL_SUMMARIZER_REASONING: reasoningOverride(),
-  SQL_STATEMENT_TIMEOUT_MS: appDefault("10000", "Per-query timeout in milliseconds."),
-  SQL_MAX_ROWS: appDefault("500", "Maximum rows returned by a query."),
-  DRAIN_GRACE_MS: appDefault("25000", "Keep below Compose's 40 second stop grace period."),
+  SQL_STATEMENT_TIMEOUT_MS: appSchemaDefault("Per-query timeout in milliseconds."),
+  SQL_MAX_ROWS: appSchemaDefault("Maximum rows returned by a query."),
+  DRAIN_GRACE_MS: appSchemaDefault("Keep below Compose's 40 second stop grace period."),
   APP_VERSION: appOptional("App version used by tracing and command-line output."),
   LANGFUSE_PUBLIC_KEY: appOptional("Tracing requires both Langfuse keys."),
   LANGFUSE_SECRET_KEY: appOptional("Tracing requires both Langfuse keys."),
@@ -105,11 +101,15 @@ function appOptional(notes: string): StackVariableDeclaration {
   };
 }
 
+function appSchemaDefault(notes: string): StackVariableDeclaration {
+  return appOptional(`Empty falls back to the app schema. ${notes}`);
+}
+
 function appDefault(
   defaultValue: string,
   notes: string,
 ): StackVariableDeclaration {
-  return { ...appOptional(notes), defaultValue };
+  return { ...appOptional(notes), defaultValue, productionDefault: defaultValue };
 }
 
 function modelOverride(): StackVariableDeclaration {

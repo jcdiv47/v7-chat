@@ -113,10 +113,56 @@ function requiredHostVariables(table: VariableTable): string[] {
     .map(([name]) => name);
 }
 
+/** Scan only the app service's environment block; no YAML features are needed. */
+function composeAppEnvironment(composeFile: string): Map<string, string> {
+  const lines = composeFile.split("\n");
+  const servicesIndex = lines.findIndex((line) => /^services:\s*$/.test(line));
+  if (servicesIndex < 0) return new Map();
+  const appIndex = lines.findIndex(
+    (line, index) => index > servicesIndex && /^  app:\s*$/.test(line),
+  );
+  if (appIndex < 0) return new Map();
+
+  const appIndent = lines[appIndex]?.match(/^\s*/)?.[0].length ?? 0;
+  let environmentIndex = -1;
+  for (let index = appIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    if (indent <= appIndent) break;
+    if (indent > appIndent && /^\s*environment:\s*$/.test(line)) {
+      environmentIndex = index;
+      break;
+    }
+  }
+  if (environmentIndex < 0) return new Map();
+
+  const environmentIndent =
+    lines[environmentIndex]?.match(/^\s*/)?.[0].length ?? 0;
+  const environment = new Map<string, string>();
+  for (let index = environmentIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    if (indent <= environmentIndent) break;
+    const entry = line.match(/^\s*([A-Z][A-Z0-9_]*):\s*(.*?)\s*$/);
+    if (entry?.[1] && entry[2] !== undefined) {
+      environment.set(entry[1], entry[2]);
+    }
+  }
+  return environment;
+}
+
+function hasSchemaDefault(declaration: VariableTable[string]): boolean {
+  const absent = declaration.schema.safeParse(undefined);
+  return absent.success && absent.data !== undefined;
+}
+
 export type ConfigurationCheckInput = {
   document: string;
   hostTemplate: string;
   stackTemplate: string;
+  composeFile: string;
 };
 
 /** Check committed output and ensure templates expose every required input. */
@@ -145,16 +191,54 @@ export function checkConfiguration(input: ConfigurationCheckInput): {
       );
     }
   }
+
+  const appEnvironment = composeAppEnvironment(input.composeFile);
+  for (const [name, declaration] of Object.entries(
+    stackVariables as StackVariableTable,
+  )) {
+    if (declaration.productionDefault === undefined) continue;
+    const expected = `\${${name}:-${declaration.productionDefault}}`;
+    if (appEnvironment.get(name) !== expected) {
+      problems.push(
+        `docker-compose.prod.yml must pin ${name} to its declared production default ${declaration.productionDefault}`,
+      );
+    }
+  }
+  for (const [name, value] of appEnvironment) {
+    const interpolation = value.match(/^\$\{([A-Z][A-Z0-9_]*):-([^}]*)\}$/);
+    if (!interpolation || interpolation[1] !== name || interpolation[2] === "") {
+      continue;
+    }
+    if (
+      (stackVariables as StackVariableTable)[name]?.productionDefault !==
+      undefined
+    ) {
+      continue;
+    }
+
+    const appDeclaration = (serverVariables as VariableTable)[name];
+    if (appDeclaration && hasSchemaDefault(appDeclaration)) {
+      problems.push(
+        `docker-compose.prod.yml pins ${name}; use \${${name}:-} so the app schema supplies its default`,
+      );
+    } else if (!appDeclaration) {
+      problems.push(
+        `docker-compose.prod.yml pins undeclared production default ${name}`,
+      );
+    }
+  }
   return { problems };
 }
 
 async function readInputs(root: string): Promise<ConfigurationCheckInput> {
-  const [document, hostTemplate, stackTemplate] = await Promise.all([
-    readFile(resolve(root, "docs/configuration.md"), "utf8"),
-    readFile(resolve(root, ".env.example"), "utf8"),
-    readFile(resolve(root, "deploy/stack.env.example"), "utf8"),
-  ]);
-  return { document, hostTemplate, stackTemplate };
+  const [document, hostTemplate, stackTemplate, composeFile] =
+    await Promise.all([
+      readFile(resolve(root, "docs/configuration.md"), "utf8"),
+      readFile(resolve(root, ".env.example"), "utf8"),
+      readFile(resolve(root, "deploy/stack.env.example"), "utf8"),
+      readFile(resolve(root, "docker-compose.prod.yml"), "utf8"),
+    ]);
+  return { document, hostTemplate, stackTemplate, composeFile };
 }
 
 async function main(): Promise<void> {

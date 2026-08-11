@@ -92,7 +92,9 @@ Set in `.env.local` (dev) or by `docker-compose.prod.yml` (production).
 ### When a bad value is caught
 
 Every variable below is declared once in `src/env/variables.ts` and parsed by
-`src/env/parse.ts`; no call site repeats a default or a fallback.
+`src/env/parse.ts`; no call site repeats a default or a fallback. Production
+Compose passes schema-defaulted values through without pinning them, and
+`npm run config:check` enforces that rule.
 
 `bootServer` validates the whole set before it opens a database connection, so
 a malformed value fails the deploy rather than the first request that happens to
@@ -175,7 +177,7 @@ reference.
 | `CLERK_SECRET_KEY` | stack | Yes | none | app environment | Yes | Server-side Clerk credential. |
 | `OPENROUTER_API_KEY` | stack | No | `empty` | app environment | Yes | Empty enables demo fallback. |
 | `MODEL_PROVIDER` | stack | No | `empty` | app environment | Yes | Set `mock` for an offline demonstration. |
-| `OPENROUTER_APP_TITLE` | stack | No | `v7 Business Analyst` | app environment | Yes | OpenRouter attribution title. |
+| `OPENROUTER_APP_TITLE` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. OpenRouter attribution title. |
 | `MODEL_FAST` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's model alias default. |
 | `MODEL_ANALYST` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's model alias default. |
 | `MODEL_SQL` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's model alias default. |
@@ -184,9 +186,9 @@ reference.
 | `MODEL_ANALYST_REASONING` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
 | `MODEL_SQL_REASONING` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
 | `MODEL_SUMMARIZER_REASONING` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema's reasoning default. |
-| `SQL_STATEMENT_TIMEOUT_MS` | stack | No | `10000` | app environment | Yes | Per-query timeout in milliseconds. |
-| `SQL_MAX_ROWS` | stack | No | `500` | app environment | Yes | Maximum rows returned by a query. |
-| `DRAIN_GRACE_MS` | stack | No | `25000` | app environment | Yes | Keep below Compose's 40 second stop grace period. |
+| `SQL_STATEMENT_TIMEOUT_MS` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Per-query timeout in milliseconds. |
+| `SQL_MAX_ROWS` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Maximum rows returned by a query. |
+| `DRAIN_GRACE_MS` | stack | No | `empty` | app environment | Yes | Empty falls back to the app schema. Keep below Compose's 40 second stop grace period. |
 | `APP_VERSION` | stack | No | `empty` | app environment | Yes | App version used by tracing and command-line output. |
 | `LANGFUSE_PUBLIC_KEY` | stack | No | `empty` | app environment | Yes | Tracing requires both Langfuse keys. |
 | `LANGFUSE_SECRET_KEY` | stack | No | `empty` | app environment | Yes | Tracing requires both Langfuse keys. |

@@ -5,6 +5,7 @@ import { serverVariables, type VariableTable } from "../src/env/variables";
 import {
   checkConfiguration,
   renderHostVariableTable,
+  renderStackVariableTable,
   replaceGeneratedTables,
 } from "./configuration";
 import { stackVariables } from "./configuration-stack";
@@ -68,14 +69,17 @@ describe("configuration reference generation", () => {
 
 describe("configuration checks", () => {
   it("reproduces the committed reference byte for byte", async () => {
-    const [document, hostTemplate, stackTemplate] = await Promise.all([
-      readFile("docs/configuration.md", "utf8"),
-      readFile(".env.example", "utf8"),
-      readFile("deploy/stack.env.example", "utf8"),
-    ]);
+    const [document, hostTemplate, stackTemplate, composeFile] =
+      await Promise.all([
+        readFile("docs/configuration.md", "utf8"),
+        readFile(".env.example", "utf8"),
+        readFile("deploy/stack.env.example", "utf8"),
+        readFile("docker-compose.prod.yml", "utf8"),
+      ]);
 
     expect(
-      checkConfiguration({ document, hostTemplate, stackTemplate }).problems,
+      checkConfiguration({ document, hostTemplate, stackTemplate, composeFile })
+        .problems,
     ).toEqual([]);
   });
 
@@ -95,6 +99,7 @@ describe("configuration checks", () => {
       stackTemplate: Object.keys(stackVariables)
         .map((name) => `${name}=`)
         .join("\n"),
+      composeFile: "services:\n  app:\n    environment:\n",
     });
 
     expect(result.problems).toContain(
@@ -116,10 +121,100 @@ describe("configuration checks", () => {
       stackTemplate: Object.keys(stackVariables)
         .map((name) => `${name}=`)
         .join("\n"),
+      composeFile: "services:\n  app:\n    environment:\n",
     });
 
     expect(result.problems).toContain(
       ".env.example omits required variable CLERK_SECRET_KEY",
     );
   });
+
+  it("reports Compose defaults that duplicate app-schema defaults", () => {
+    const result = checkConfiguration(
+      validInput("      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500}"),
+    );
+
+    expect(result.problems).toContain(
+      "docker-compose.prod.yml pins SQL_MAX_ROWS; use ${SQL_MAX_ROWS:-} so the app schema supplies its default",
+    );
+  });
+
+  it("accepts schema pass-through and Compose-supplied defaults", () => {
+    const result = checkConfiguration(
+      validInput(
+        [
+          "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-}",
+          "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-production}",
+        ].join("\n"),
+      ),
+    );
+
+    expect(result.problems).toEqual([]);
+  });
+
+  it("reports a declared production default when Compose diverges", () => {
+    const result = checkConfiguration(
+      validInput(
+        "      LANGFUSE_ENVIRONMENT: ${LANGFUSE_ENVIRONMENT:-staging}",
+      ),
+    );
+
+    expect(result.problems).toContain(
+      "docker-compose.prod.yml must pin LANGFUSE_ENVIRONMENT to its declared production default production",
+    );
+  });
+
+  it("ignores assembled and fixed Compose values", () => {
+    const result = checkConfiguration(
+      validInput(
+        [
+          "      DATABASE_URL: postgresql://v7:${APP_DB_PASSWORD}@app-db:5432/v7_chat",
+          "      OPENROUTER_APP_URL: https://${DOMAIN}",
+          "      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in",
+          '      NEXT_MANUAL_SIG_HANDLE: "true"',
+        ].join("\n"),
+      ),
+    );
+
+    expect(result.problems).toEqual([]);
+  });
+
+  it("reports every drifted Compose default in one pass", () => {
+    const result = checkConfiguration(
+      validInput(
+        [
+          "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500}",
+          "      DRAIN_GRACE_MS: ${DRAIN_GRACE_MS:-25000}",
+        ].join("\n"),
+      ),
+    );
+
+    expect(result.problems).toEqual([
+      "docker-compose.prod.yml pins SQL_MAX_ROWS; use ${SQL_MAX_ROWS:-} so the app schema supplies its default",
+      "docker-compose.prod.yml pins DRAIN_GRACE_MS; use ${DRAIN_GRACE_MS:-} so the app schema supplies its default",
+    ]);
+  });
 });
+
+function validInput(environment: string) {
+  const completeEnvironment = environment.includes("LANGFUSE_ENVIRONMENT:")
+    ? environment
+    : `${environment}\n      LANGFUSE_ENVIRONMENT: \${LANGFUSE_ENVIRONMENT:-production}`;
+  return {
+    document: [
+      "<!-- BEGIN GENERATED HOST CONFIGURATION -->",
+      renderHostVariableTable(serverVariables),
+      "<!-- END GENERATED HOST CONFIGURATION -->",
+      "<!-- BEGIN GENERATED STACK CONFIGURATION -->",
+      renderStackVariableTable(stackVariables),
+      "<!-- END GENERATED STACK CONFIGURATION -->",
+    ].join("\n"),
+    hostTemplate: Object.keys(serverVariables)
+      .map((name) => `${name}=`)
+      .join("\n"),
+    stackTemplate: Object.keys(stackVariables)
+      .map((name) => `${name}=`)
+      .join("\n"),
+    composeFile: `services:\n  app:\n    environment:\n${completeEnvironment}\n`,
+  };
+}
