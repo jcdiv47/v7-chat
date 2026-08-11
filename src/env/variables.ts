@@ -49,6 +49,10 @@ export type Declaration<S extends z.ZodType = z.ZodType> = {
   documentedRequirement?: string;
   /** Override the inferred default when defaults differ by consumer. */
   documentedDefault?: string;
+  /** Override which file or environment supplies the value. */
+  documentedSource?: string;
+  /** False when the value is fixed by production files, not host-configurable. */
+  hostTemplate?: false;
   /** Completes "expected …" in a problem line. */
   expectation: string;
 };
@@ -147,6 +151,7 @@ export const publicVariables = {
     schema: z.string().optional(),
     secret: false,
     consumer: "src/lib/app-version.ts",
+    documentedSource: "`.env.local` or the build environment",
     notes:
       "Used after APP_VERSION and before package.json; inlined into client code at build time.",
     expectation: "a version string",
@@ -277,6 +282,11 @@ export const serverVariables = {
     secret: true,
     consumer:
       "src/server/worker-deps.ts, tui/index.ts, evals/run.ts, scripts/seed-db.ts",
+    documentedRequirement: "Yes (web agent); No (TUI and eval runner)",
+    documentedDefault:
+      "none (web agent); in-process PGlite sample database (TUI and eval runner)",
+    notes:
+      "The web agent throws when an analytical tool first needs an unset URL. The TUI and eval runner instead use seeded in-process PGlite.",
     expectation: "a Postgres connection URL (postgres:// or postgresql://)",
   },
   SEED_DATABASE_URL: {
@@ -284,6 +294,12 @@ export const serverVariables = {
     schema: postgresUrl().optional(),
     secret: true,
     consumer: "scripts/seed-db.ts",
+    documentedRequirement:
+      "No (but the seed script requires this or INTERMEDIATE_DATABASE_URL)",
+    documentedDefault: "INTERMEDIATE_DATABASE_URL",
+    documentedSource: "`.env.local` or the invoking shell",
+    notes:
+      "Use a writable admin connection; the app's analytical login should remain read-only.",
     expectation: "a writable Postgres connection URL",
   },
   SQL_STATEMENT_TIMEOUT_MS: {
@@ -315,6 +331,8 @@ export const serverVariables = {
     schema: z.string().optional(),
     secret: false,
     consumer: "src/lib/app-version.ts",
+    documentedDefault:
+      "NEXT_PUBLIC_APP_VERSION, then the version in package.json",
     expectation: "a version string",
   },
   LANGFUSE_PUBLIC_KEY: {
@@ -336,6 +354,7 @@ export const serverVariables = {
     schema: httpUrl().optional(),
     secret: false,
     consumer: "src/server/telemetry.ts",
+    documentedDefault: "https://cloud.langfuse.com (Langfuse SDK)",
     expectation: "an http:// or https:// URL",
   },
   LANGFUSE_ENVIRONMENT: {
@@ -350,6 +369,7 @@ export const serverVariables = {
     schema: z.string().optional(),
     secret: false,
     consumer: "src/lib/app-version.ts",
+    documentedDefault: "the resolved app version",
     expectation: "a release label",
   },
 
@@ -366,6 +386,8 @@ export const serverVariables = {
     schema: z.string().optional(),
     secret: false,
     consumer: "Next.js (set by the Dockerfile and docker-compose.prod.yml)",
+    documentedSource: "`Dockerfile` and `docker-compose.prod.yml`",
+    hostTemplate: false,
     expectation: "a truthy string enabling the app's own SIGTERM handler",
   },
 } satisfies VariableTable;

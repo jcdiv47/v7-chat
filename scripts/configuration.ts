@@ -52,12 +52,15 @@ export function renderHostVariableTable(
     const documentedDefault =
       declaration.documentedDefault ??
       (defaultValue === "none" ? "none" : code(defaultValue));
-    return `| ${code(name)} | ${markdown(declaration.capability)} | ${markdown(documentedRequirement)} | ${markdown(documentedDefault)} | ${markdown(declaration.consumer)} | ${markdown(declaration.notes ?? declaration.expectation)} |`;
+    const documentedSource =
+      declaration.documentedSource ??
+      "`.env.local` (development); `docker-compose.prod.yml` (production)";
+    return `| ${code(name)} | ${markdown(declaration.capability)} | ${markdown(documentedRequirement)} | ${markdown(documentedDefault)} | ${markdown(documentedSource)} | ${markdown(declaration.consumer)} | ${markdown(declaration.notes ?? declaration.expectation)} |`;
   });
 
   return [
-    "| Variable | Capability | Required | Default | Read by | Notes |",
-    "| --- | --- | --- | --- | --- | --- |",
+    "| Variable | Capability | Required | Default | Set by | Read by | Notes |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
     ...rows,
   ].join("\n");
 }
@@ -67,11 +70,11 @@ export function renderStackVariableTable(
   declarations: StackVariableTable = stackVariables,
 ): string {
   const rows = Object.entries(declarations).map(([name, declaration]) =>
-    `| ${code(name)} | stack | ${declaration.required ? "Yes" : "No"} | ${declaration.defaultValue === undefined ? "none" : code(declaration.defaultValue)} | ${markdown(declaration.consumer)} | ${markdown(describeAppReachability(declaration.reachesApp))} | ${markdown(declaration.notes)} |`,
+    `| ${code(name)} | stack | ${declaration.required ? "Yes" : "No"} | ${declaration.defaultValue === undefined ? "none" : code(declaration.defaultValue)} | ${code("deploy/aws.env")} or ${code("deploy/rehearsal.env")} | ${markdown(declaration.consumer)} | ${markdown(describeAppReachability(declaration.reachesApp))} | ${markdown(declaration.notes)} |`,
   );
   return [
-    "| Variable | Capability | Required | Default | Consumed by | Reaches the app? | Notes |",
-    "| --- | --- | --- | --- | --- | --- | --- |",
+    "| Variable | Capability | Required | Default | Set by | Consumed by | Reaches the app? | Notes |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows,
   ].join("\n");
 }
@@ -118,10 +121,10 @@ function templateVariables(template: string): Set<string> {
   return names;
 }
 
-function requiredHostVariables(table: VariableTable): string[] {
-  return Object.entries(table)
-    .filter(([, declaration]) => schemaRequirementAndDefault(declaration).required)
-    .map(([name]) => name);
+function hostTemplateVariables(table: VariableTable): [string, VariableTable[string]][] {
+  return Object.entries(table).filter(
+    ([, declaration]) => declaration.hostTemplate !== false,
+  );
 }
 
 function indentOf(line: string): number {
@@ -273,7 +276,7 @@ export type ConfigurationCheckInput = {
   composeFile: string;
 };
 
-/** Check committed output and ensure templates expose every required input. */
+/** Check committed output and ensure templates expose every configurable input. */
 export function checkConfiguration(input: ConfigurationCheckInput): {
   problems: string[];
 } {
@@ -285,17 +288,21 @@ export function checkConfiguration(input: ConfigurationCheckInput): {
   }
 
   const hostNames = templateVariables(input.hostTemplate);
-  for (const name of requiredHostVariables(serverVariables)) {
+  for (const [name, declaration] of hostTemplateVariables(serverVariables)) {
     if (!hostNames.has(name)) {
-      problems.push(`.env.example omits required variable ${name}`);
+      const qualifier = schemaRequirementAndDefault(declaration).required
+        ? "required "
+        : "declared ";
+      problems.push(`.env.example omits ${qualifier}variable ${name}`);
     }
   }
 
   const stackNames = templateVariables(input.stackTemplate);
   for (const [name, declaration] of Object.entries(stackVariables)) {
-    if (declaration.required && !stackNames.has(name)) {
+    if (!stackNames.has(name)) {
+      const qualifier = declaration.required ? "required " : "declared ";
       problems.push(
-        `deploy/stack.env.example omits required variable ${name}`,
+        `deploy/stack.env.example omits ${qualifier}variable ${name}`,
       );
     }
   }

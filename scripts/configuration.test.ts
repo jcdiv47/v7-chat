@@ -28,7 +28,28 @@ describe("configuration reference generation", () => {
     } satisfies VariableTable;
 
     expect(renderHostVariableTable(declarations)).toContain(
-      "| `TEST_AUTO_DOCUMENTED` | tracing | No | `from-schema` | test consumer | Added only to the schema fixture. |",
+      "| `TEST_AUTO_DOCUMENTED` | tracing | No | `from-schema` | `.env.local` (development); `docker-compose.prod.yml` (production) | test consumer | Added only to the schema fixture. |",
+    );
+  });
+
+  it("states which file sets variables on both surfaces", () => {
+    expect(renderHostVariableTable(serverVariables)).toContain("| Set by | Read by |");
+    expect(renderStackVariableTable()).toContain(
+      "| Set by | Consumed by | Reaches the app? |",
+    );
+    expect(renderStackVariableTable()).toContain(
+      "| `deploy/aws.env` or `deploy/rehearsal.env` |",
+    );
+  });
+
+  it("documents the analytical database fallbacks by consumer", () => {
+    const table = renderHostVariableTable(serverVariables);
+
+    expect(table).toContain(
+      "none (web agent); in-process PGlite sample database (TUI and eval runner)",
+    );
+    expect(table).toContain(
+      "| `SEED_DATABASE_URL` | analytical-database | No (but the seed script requires this or INTERMEDIATE_DATABASE_URL) | INTERMEDIATE_DATABASE_URL |",
     );
   });
 
@@ -130,6 +151,30 @@ describe("configuration checks", () => {
 
     expect(result.problems).toContain(
       ".env.example omits required variable CLERK_SECRET_KEY",
+    );
+  });
+
+  it("reports optional declared variables omitted from either template", () => {
+    const hostTemplate = Object.keys(serverVariables)
+      .filter((name) => name !== "NEXT_PUBLIC_APP_VERSION")
+      .map((name) => `${name}=`)
+      .join("\n");
+    const stackTemplate = Object.keys(stackVariables)
+      .filter((name) => name !== "SQL_MAX_RESULT_BYTES")
+      .map((name) => `${name}=`)
+      .join("\n");
+
+    const result = checkConfiguration({
+      ...validInput({}),
+      hostTemplate,
+      stackTemplate,
+    });
+
+    expect(result.problems).toContain(
+      ".env.example omits declared variable NEXT_PUBLIC_APP_VERSION",
+    );
+    expect(result.problems).toContain(
+      "deploy/stack.env.example omits declared variable SQL_MAX_RESULT_BYTES",
     );
   });
 
