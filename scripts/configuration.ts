@@ -144,13 +144,38 @@ function childIndex(
   return undefined;
 }
 
-function unquoteScalar(value: string): string {
-  const quote = value[0];
-  return value.length >= 2 &&
+function stripYamlComment(value: string): string {
+  let quote: "'" | '"' | undefined;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (quote === "'" && character === "'") {
+      if (value[index + 1] === "'") index += 1;
+      else quote = undefined;
+    } else if (quote === '"' && character === "\\") {
+      index += 1;
+    } else if (quote === '"' && character === '"') {
+      quote = undefined;
+    } else if (!quote && (character === "'" || character === '"')) {
+      quote = character;
+    } else if (
+      !quote &&
+      character === "#" &&
+      (index === 0 || /\s/.test(value[index - 1] ?? ""))
+    ) {
+      return value.slice(0, index).trimEnd();
+    }
+  }
+  return value;
+}
+
+function normalizeYamlScalar(value: string): string {
+  const uncommented = stripYamlComment(value);
+  const quote = uncommented[0];
+  return uncommented.length >= 2 &&
     (quote === '"' || quote === "'") &&
-    value.at(-1) === quote
-    ? value.slice(1, -1)
-    : value;
+    uncommented.at(-1) === quote
+    ? uncommented.slice(1, -1)
+    : uncommented;
 }
 
 type ComposeEnvironmentResult =
@@ -177,7 +202,7 @@ function composeAppEnvironment(composeFile: string): ComposeEnvironmentResult {
     if (indentOf(line) <= environmentIndent) break;
     const entry = line.match(/^\s*([A-Z][A-Z0-9_]*):\s*(.*?)\s*$/);
     if (entry?.[1] && entry[2] !== undefined) {
-      environment.set(entry[1], unquoteScalar(entry[2]));
+      environment.set(entry[1], normalizeYamlScalar(entry[2]));
     }
   }
   return { environment };

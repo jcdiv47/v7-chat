@@ -133,6 +133,10 @@ describe("configuration checks", () => {
     "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500}",
     '      SQL_MAX_ROWS: "${SQL_MAX_ROWS:-500}"',
     "      SQL_MAX_ROWS: '${SQL_MAX_ROWS:-500}'",
+    "      SQL_MAX_ROWS: ${SQL_MAX_ROWS:-500} # tune per host",
+    '      SQL_MAX_ROWS: "${SQL_MAX_ROWS:-500}" # tune per host',
+    "      SQL_MAX_ROWS: '${SQL_MAX_ROWS:-500}' # tune per host",
+    '      SQL_MAX_ROWS: "${SQL_MAX_ROWS:-500 # not a YAML comment}"',
   ])("reports app-schema defaults in Compose scalar %s", (declaration) => {
     const result = checkConfiguration(
       validInput(

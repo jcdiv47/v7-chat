@@ -1,8 +1,16 @@
-export type StackVariableDeclaration = {
+type ComposeDefaultPolicy =
+  | {
+      defaultValue: string;
+      /** Pin defaultValue in Compose instead of passing an empty value to the app. */
+      pinComposeDefault: true;
+    }
+  | {
+      defaultValue?: string;
+      pinComposeDefault?: never;
+    };
+
+export type StackVariableDeclaration = ComposeDefaultPolicy & {
   required: boolean;
-  defaultValue?: string;
-  /** Pin defaultValue in Compose instead of passing an empty value to the app. */
-  pinComposeDefault?: true;
   consumer: string;
   reachesApp: string;
   notes: string;
