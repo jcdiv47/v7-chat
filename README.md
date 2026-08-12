@@ -69,6 +69,21 @@ boots, and the app receives a grace period to drain in-flight runs on deploy.
 See [`docs/deployment/aws-single-host.md`](./docs/deployment/aws-single-host.md)
 for EC2 setup, configuration, data loading, deployment, and backup steps.
 
+## Deploying (Railway)
+
+Railway is a parallel target defined as TypeScript infrastructure in
+[`.railway/railway.ts`](./.railway/railway.ts). It deploys the same app and
+read-only analytical database split without changing the AWS stack. The guided
+setup captures secrets, previews the plan, imports the private CSVs over SSH,
+and verifies health:
+
+```bash
+./scripts/setup-railway.sh
+```
+
+See [`docs/deployment/railway.md`](./docs/deployment/railway.md) for operation,
+data refreshes, and rollback.
+
 ## TUI (fast local iteration)
 
 Runs the **same agent definition** as the web app against a Node Postgres
@@ -153,6 +168,8 @@ scripts/                skill bundler, DB seeder
 | `npm run eval` | Eval suite |
 | `npm run seed` | Seed a real Postgres with sample data |
 | `./scripts/import-intermediate-csv.sh --dev` | Load `data/*.csv` into the dev analytical Postgres |
+| `./scripts/import-intermediate-csv.sh --railway` | Load `data/*.csv` through Railway's private SSH path |
+| `./scripts/setup-railway.sh` | Guided first Railway deployment |
 | `npm run typecheck` | `tsc --noEmit` |
 
 ## V1 scope

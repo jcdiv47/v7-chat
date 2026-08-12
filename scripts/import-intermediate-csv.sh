@@ -12,6 +12,9 @@
 #   Dev database from docker-compose.yml, for `npm run dev`:
 #     ./scripts/import-intermediate-csv.sh --dev
 #
+#   Railway analytical database, over its private SSH path:
+#     ./scripts/import-intermediate-csv.sh --railway
+#
 #   Any other reachable Postgres, using the host's psql:
 #     ./scripts/import-intermediate-csv.sh --url postgres://admin:pw@host:5432/analytics
 #
@@ -52,6 +55,11 @@ case "${1:-}" in
     compose_files=(-f docker-compose.yml)
     shift
     ;;
+  --railway)
+    mode=railway
+    service=intermediate-db
+    shift
+    ;;
   --url)
     mode=url
     url=${2:?--url needs a Postgres connection string}
@@ -80,6 +88,9 @@ fi
 psql_admin() {
   if [ "$mode" = url ]; then
     psql "$url" -v ON_ERROR_STOP=1 --quiet "$@"
+  elif [ "$mode" = railway ]; then
+    railway ssh --service "$service" -- \
+      psql -U intermediate_admin -d analytics -v ON_ERROR_STOP=1 --quiet "$@"
   elif [ -n "$env_file" ]; then
     docker compose --env-file "$env_file" -p "$project" "${compose_files[@]}" \
       exec -T "$service" \

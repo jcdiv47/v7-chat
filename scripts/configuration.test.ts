@@ -27,7 +27,7 @@ describe("configuration reference generation", () => {
     } satisfies VariableTable;
 
     expect(renderHostVariableTable(declarations)).toContain(
-      "| `TEST_AUTO_DOCUMENTED` | tracing | No | `from-schema` | `.env.local` (development); `docker-compose.prod.yml` (production) | test consumer | Added only to the schema fixture. |",
+      "| `TEST_AUTO_DOCUMENTED` | tracing | No | `from-schema` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | test consumer | Added only to the schema fixture. |",
     );
   });
 

@@ -38,13 +38,18 @@ npm run dev                            # http://localhost:3000
 
 ## Deployment
 
-The production stack (`docker-compose.prod.yml`) runs Caddy, the Next.js
-service, App Postgres and the intermediate Postgres on one host. Only Caddy
-publishes ports; both databases sit on an `internal: true` network and
-therefore **cannot publish ports at all** — reach them with
-`docker compose exec`. Full reference: `docs/deployment/aws-single-host.md`.
+Two parallel targets preserve the same single-app and two-database shape.
+Railway infrastructure lives in `.railway/railway.ts`; use
+`docs/deployment/railway.md` for Railway setup, imports, updates, or rollback.
+The AWS target remains the production Compose stack described below.
 
-### What a human must prepare first
+The AWS stack (`docker-compose.prod.yml`) runs Caddy, the Next.js service, App
+Postgres and the intermediate Postgres on one host. Only Caddy publishes ports;
+both databases sit on an `internal: true` network and therefore **cannot
+publish ports at all** — reach them with `docker compose exec`. Full reference:
+`docs/deployment/aws-single-host.md`.
+
+### What a human must prepare first for AWS
 
 An agent cannot obtain any of these. Ask for them before starting, and never
 print their values back into a transcript or commit them. What each one does is

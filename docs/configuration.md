@@ -13,9 +13,11 @@ machine, from `.env.local` (template: [`.env.example`](../.env.example)).
 `next dev` and `next build` load that file implicitly; the TUI, the eval runner
 and the seed script load it explicitly through `src/env/node.ts` and fall back
 to the ambient environment. The Drizzle config deliberately does not — drizzle-kit
-does its own env loading, and a second loader would change which file wins. In production these same variables
-reach the app process as container environment, but they are set by
-`docker-compose.prod.yml`, not by a file the app reads.
+does its own env loading, and a second loader would change which file wins. In
+AWS production these same variables reach the app process as container
+environment set by `docker-compose.prod.yml`, not by a file the app reads. On
+Railway, `.railway/railway.ts` maps Railway service and shared variables onto
+this same host-process surface.
 
 **Stack configuration** is read by Docker Compose on the deployment host, from
 `deploy/aws.env` (production) or `deploy/rehearsal.env` (local rehearsal)
@@ -27,12 +29,14 @@ passwords — never reach the app process as themselves at all.
 
 They cannot merge because they belong to different machines with different
 threat models. The host surface lives on a laptop, is checked out by every
-developer, and must never hold a production password. The stack surface lives on
-the deployment host, holds every production secret, and must never be checked
-out by every developer — both stack files are gitignored via `/deploy/*.env`.
-Merging them would mean either shipping production passwords into every
-checkout, or asking each developer to configure `DOMAIN` and ACME for a
-certificate they will never obtain.
+developer, and must never hold a production password. The AWS stack surface
+lives on the deployment host, holds every AWS production secret, and must never
+be checked out by every developer — both stack files are gitignored via
+`/deploy/*.env`. Railway stores the equivalent deployment secrets as sealed
+platform variables rather than introducing another checked-in env file.
+Merging the file-backed surfaces would mean either shipping production
+passwords into every checkout, or asking each developer to configure `DOMAIN`
+and ACME for a certificate they will never obtain.
 
 ### Filename asymmetry
 
@@ -71,14 +75,41 @@ Two consequences follow:
 - **`OPENROUTER_APP_URL` is derived, not configured.** In production Compose
   sets it to `https://${DOMAIN}`. It is a host-surface variable only.
 
+## How Railway assembles the deployment
+
+Railway is a second deployment mechanism, not a third application
+configuration model. [`.railway/railway.ts`](../.railway/railway.ts) maps its
+resources onto the host-process variables above:
+
+- `DATABASE_URL` references the volume-backed `app-db` service's private URL;
+  `APP_DB_PASSWORD` is a sealed Railway provisioning input that reaches the app
+  only inside that URL.
+- `INTERMEDIATE_DATABASE_URL` references `READONLY_DATABASE_URL` exported by
+  the custom `intermediate-db` service; that URL contains the read-only role,
+  the sealed read-only password, and Railway's private service hostname.
+- Clerk and model-provider shared variables reach the app under their existing
+  host-process names.
+- `INTERMEDIATE_ADMIN_PASSWORD` and `INTERMEDIATE_READONLY_PASSWORD` are sealed
+  Railway provisioning inputs. The former reaches only the analytical database;
+  the latter reaches that database and reaches the app only inside
+  `INTERMEDIATE_DATABASE_URL`.
+- The wizard updates the shared `OPENROUTER_APP_URL` after Railway creates its
+  public domain; the IaC maps it onto the app service.
+
+The guided setup writes these values directly to Railway; it never creates a
+local production env file. Railway supplies ingress, TLS, `PORT`, and hostnames,
+so AWS-only `DOMAIN` and `ACME_EMAIL` have no Railway equivalent. Variable
+meaning remains defined by the generated host table below and the AWS-only
+stack table later in this document.
+
 ## Build-time vs. runtime
 
 `NEXT_PUBLIC_*` variables are inlined into the client bundle by Next.js at build
 time. `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` is therefore both a Docker build
-argument and a runtime environment variable in `docker-compose.prod.yml`.
-**Changing the Clerk publishable key requires a rebuild (`up -d --build`), not
-a restart** — a restarted container keeps serving the old key baked into the
-JavaScript.
+argument and a runtime environment variable. Compose passes it explicitly;
+Railway makes the mapped service variable available to the Docker build.
+**Changing the Clerk publishable key requires a rebuild, not a restart** — a
+restarted container keeps serving the old key baked into the JavaScript.
 
 `NEXT_PUBLIC_CLERK_SIGN_IN_URL` and `NEXT_PUBLIC_CLERK_SIGN_UP_URL` are pinned
 to `/sign-in` and `/sign-up` in both the Dockerfile and `docker-compose.prod.yml`,
@@ -88,8 +119,9 @@ with their app-schema defaults.
 
 ## Host process configuration
 
-Set in `.env.local` (dev) or by `docker-compose.prod.yml` (production).
-"Required" means the reading component throws or exits without it.
+Set in `.env.local` (development), by `docker-compose.prod.yml` (AWS), or by
+Railway service/shared variables. "Required" means the reading component throws
+or exits without it.
 
 ### When a bad value is caught
 
@@ -119,37 +151,37 @@ entries.
 <!-- BEGIN GENERATED HOST CONFIGURATION -->
 | Variable | Capability | Required | Default | Set by | Read by | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `DATABASE_URL` | core | Yes (app); No (Drizzle CLI) | none (app); `postgres://v7:v7@localhost:5433/v7_chat` (Drizzle CLI) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/db/client.ts, drizzle.config.ts | a Postgres connection URL (postgres:// or postgresql://) |
-| `CLERK_SECRET_KEY` | core | Yes | none | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK (server) | a Clerk secret key |
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | core | Yes | none | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK (clerkMiddleware in src/proxy.ts, React providers) | a Clerk publishable key |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | core | No | `/sign-in` | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK | a path to the sign-in page |
-| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | core | No | `/sign-up` | `.env.local` (development); `docker-compose.prod.yml` (production) | Clerk SDK | a path to the sign-up page |
-| `NEXT_PUBLIC_APP_VERSION` | tracing | No | none | `.env.local` for next dev/build; not exposed by the production stack | src/lib/app-version.ts | Used after APP_VERSION and before package.json; inlined at build time when referenced by client code. |
-| `MODEL_PROVIDER` | model-provider | No | `openrouter` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: openrouter, mock |
-| `OPENROUTER_API_KEY` | model-provider | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter API key |
-| `OPENROUTER_APP_URL` | model-provider | No | `http://localhost:3000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts (HTTP-Referer attribution header) | an http:// or https:// URL |
-| `OPENROUTER_APP_TITLE` | model-provider | No | `v7 Business Analyst` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts (X-Title attribution header) | a title string |
-| `MODEL_FAST` | model-provider | No | `openai/gpt-oss-120b:nitro` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter model ID for the `fast` alias |
-| `MODEL_ANALYST` | model-provider | No | `z-ai/glm-5.2:nitro` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter model ID for the `analyst` alias |
-| `MODEL_SQL` | model-provider | No | `moonshotai/kimi-k2.6` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter model ID for the `sql` alias |
-| `MODEL_SUMMARIZER` | model-provider | No | `openai/gpt-oss-120b:nitro` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | an OpenRouter model ID for the `summarizer` alias |
-| `MODEL_FAST_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
-| `MODEL_ANALYST_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
-| `MODEL_SQL_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
-| `MODEL_SUMMARIZER_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
-| `INTERMEDIATE_DATABASE_URL` | analytical-database | Yes (web agent); No (TUI and eval runner) | none (web agent); in-process PGlite sample database (TUI and eval runner) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/worker-deps.ts, tui/index.ts, evals/run.ts, scripts/seed-db.ts | The web agent throws when an analytical tool first needs an unset URL. The TUI and eval runner instead use seeded in-process PGlite. |
+| `DATABASE_URL` | core | Yes (app); No (Drizzle CLI) | none (app); `postgres://v7:v7@localhost:5433/v7_chat` (Drizzle CLI) | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/server/db/client.ts, drizzle.config.ts | a Postgres connection URL (postgres:// or postgresql://) |
+| `CLERK_SECRET_KEY` | core | Yes | none | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | Clerk SDK (server) | a Clerk secret key |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | core | Yes | none | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | Clerk SDK (clerkMiddleware in src/proxy.ts, React providers) | a Clerk publishable key |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | core | No | `/sign-in` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | Clerk SDK | a path to the sign-in page |
+| `NEXT_PUBLIC_CLERK_SIGN_UP_URL` | core | No | `/sign-up` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | Clerk SDK | a path to the sign-up page |
+| `NEXT_PUBLIC_APP_VERSION` | tracing | No | none | `.env.local` for next dev/build; not exposed by either production target | src/lib/app-version.ts | Used after APP_VERSION and before package.json; inlined at build time when referenced by client code. |
+| `MODEL_PROVIDER` | model-provider | No | `openrouter` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | one of: openrouter, mock |
+| `OPENROUTER_API_KEY` | model-provider | No | none | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | an OpenRouter API key |
+| `OPENROUTER_APP_URL` | model-provider | No | `http://localhost:3000` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts (HTTP-Referer attribution header) | an http:// or https:// URL |
+| `OPENROUTER_APP_TITLE` | model-provider | No | `v7 Business Analyst` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts (X-Title attribution header) | a title string |
+| `MODEL_FAST` | model-provider | No | `openai/gpt-oss-120b:nitro` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | an OpenRouter model ID for the `fast` alias |
+| `MODEL_ANALYST` | model-provider | No | `z-ai/glm-5.2:nitro` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | an OpenRouter model ID for the `analyst` alias |
+| `MODEL_SQL` | model-provider | No | `moonshotai/kimi-k2.6` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | an OpenRouter model ID for the `sql` alias |
+| `MODEL_SUMMARIZER` | model-provider | No | `openai/gpt-oss-120b:nitro` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | an OpenRouter model ID for the `summarizer` alias |
+| `MODEL_FAST_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
+| `MODEL_ANALYST_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
+| `MODEL_SQL_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
+| `MODEL_SUMMARIZER_REASONING` | model-provider | No | `low` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/models/registry.ts | one of: provider-default, none, minimal, low, medium, high, xhigh |
+| `INTERMEDIATE_DATABASE_URL` | analytical-database | Yes (web agent); No (TUI and eval runner) | none (web agent); in-process PGlite sample database (TUI and eval runner) | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/server/worker-deps.ts, tui/index.ts, evals/run.ts, scripts/seed-db.ts | The web agent throws when an analytical tool first needs an unset URL. The TUI and eval runner instead use seeded in-process PGlite. |
 | `SEED_DATABASE_URL` | analytical-database | No (but the seed script requires this or INTERMEDIATE_DATABASE_URL) | INTERMEDIATE_DATABASE_URL | `.env.local` or the invoking shell | scripts/seed-db.ts | Use a writable admin connection; the app's analytical login should remain read-only. |
-| `SQL_STATEMENT_TIMEOUT_MS` | analytical-database | No | `10000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/sql/executor.ts | a positive whole number of milliseconds |
-| `SQL_MAX_ROWS` | analytical-database | No | `500` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/sql/executor.ts | a positive whole number of rows |
-| `SQL_MAX_RESULT_BYTES` | analytical-database | No | `700000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/sql/executor.ts | Bounds serialized and persisted table artifacts. |
-| `APP_VERSION` | tracing | No | NEXT_PUBLIC_APP_VERSION, then the version in package.json | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/app-version.ts | a version string |
-| `LANGFUSE_PUBLIC_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | a Langfuse public key |
-| `LANGFUSE_SECRET_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | a Langfuse secret key |
-| `LANGFUSE_BASE_URL` | tracing | No | https://cloud.langfuse.com (Langfuse SDK) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an http:// or https:// URL |
-| `LANGFUSE_ENVIRONMENT` | tracing | No | `development` (host template); `production` (stack) | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/telemetry.ts | an environment label |
-| `LANGFUSE_RELEASE` | tracing | No | the resolved app version | `.env.local` (development); `docker-compose.prod.yml` (production) | src/lib/app-version.ts | a release label |
-| `DRAIN_GRACE_MS` | lifecycle | No | `25000` | `.env.local` (development); `docker-compose.prod.yml` (production) | src/server/sweeper.ts | a positive whole number of milliseconds |
-| `NEXT_MANUAL_SIG_HANDLE` | lifecycle | No | none | `Dockerfile` and `docker-compose.prod.yml` | Next.js (set by the Dockerfile and docker-compose.prod.yml) | a truthy string enabling the app's own SIGTERM handler |
+| `SQL_STATEMENT_TIMEOUT_MS` | analytical-database | No | `10000` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/sql/executor.ts | a positive whole number of milliseconds |
+| `SQL_MAX_ROWS` | analytical-database | No | `500` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/sql/executor.ts | a positive whole number of rows |
+| `SQL_MAX_RESULT_BYTES` | analytical-database | No | `700000` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/sql/executor.ts | Bounds serialized and persisted table artifacts. |
+| `APP_VERSION` | tracing | No | NEXT_PUBLIC_APP_VERSION, then the version in package.json | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/app-version.ts | a version string |
+| `LANGFUSE_PUBLIC_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/server/telemetry.ts | a Langfuse public key |
+| `LANGFUSE_SECRET_KEY` | tracing | No | none | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/server/telemetry.ts | a Langfuse secret key |
+| `LANGFUSE_BASE_URL` | tracing | No | https://cloud.langfuse.com (Langfuse SDK) | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/server/telemetry.ts | an http:// or https:// URL |
+| `LANGFUSE_ENVIRONMENT` | tracing | No | `development` (host template); `production` (stack) | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/server/telemetry.ts | an environment label |
+| `LANGFUSE_RELEASE` | tracing | No | the resolved app version | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/lib/app-version.ts | a release label |
+| `DRAIN_GRACE_MS` | lifecycle | No | `25000` | `.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway) | src/server/sweeper.ts | a positive whole number of milliseconds |
+| `NEXT_MANUAL_SIG_HANDLE` | lifecycle | No | none | `Dockerfile` and `docker-compose.prod.yml` (AWS); `.railway/railway.ts` (Railway) | Next.js (set by the Dockerfile, Compose, or Railway IaC) | a truthy string enabling the app's own SIGTERM handler |
 <!-- END GENERATED HOST CONFIGURATION -->
 
 ### Platform-provided runtime values
@@ -166,16 +198,18 @@ schema and both templates.
 | `HOSTNAME` | No | `0.0.0.0` in the image | `Dockerfile` | Next.js standalone server | Allows the container to accept network traffic. |
 | `NEXT_TELEMETRY_DISABLED` | No | unset in development; `1` in the image | `Dockerfile` | Next.js | Disables Next.js telemetry in image builds and at runtime. |
 
-The database images also receive fixed internal variables from
-`docker-compose.prod.yml`: `POSTGRES_USER`, `POSTGRES_DB`, and
-`POSTGRES_PASSWORD`. The intermediate database's initialization script reads
-the first two plus `INTERMEDIATE_READONLY_PASSWORD`; the stack table documents
-the human-supplied password inputs from which Compose sets them. These fixed
-container values are not additional configuration inputs.
+The database images also receive internal `POSTGRES_USER`, `POSTGRES_DB`, and
+`POSTGRES_PASSWORD` values. Compose fixes or derives them in
+`docker-compose.prod.yml`; `.railway/railway.ts` fixes both Railway
+database/user pairs while mapping sealed password inputs. The intermediate
+database initialization script additionally
+reads `INTERMEDIATE_READONLY_PASSWORD`. These database-container values are
+provisioning details rather than additional app configuration inputs.
 
-## Stack configuration
+## AWS stack configuration
 
-Set in `deploy/aws.env` or `deploy/rehearsal.env`; read by Docker Compose when
+This table applies only to the AWS/rehearsal Compose target. Values are set in
+`deploy/aws.env` or `deploy/rehearsal.env`; read by Docker Compose when
 interpolating `docker-compose.prod.yml`. Both files are gitignored and should be
 `chmod 600`. Required values use Compose's `${VAR:?...}` form, so a missing one
 fails the `up` with a message naming the stack surface and pointing back to this

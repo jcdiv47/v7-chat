@@ -54,7 +54,7 @@ export function renderHostVariableTable(
       (defaultValue === "none" ? "none" : code(defaultValue));
     const documentedSource =
       declaration.documentedSource ??
-      "`.env.local` (development); `docker-compose.prod.yml` (production)";
+      "`.env.local` (development); `docker-compose.prod.yml` (AWS production); Railway service/shared variables (Railway)";
     return `| ${code(name)} | ${markdown(declaration.capability)} | ${markdown(documentedRequirement)} | ${markdown(documentedDefault)} | ${markdown(documentedSource)} | ${markdown(declaration.consumer)} | ${markdown(declaration.notes ?? declaration.expectation)} |`;
   });
 

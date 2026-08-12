@@ -156,7 +156,7 @@ export const publicVariables = {
     secret: false,
     consumer: "src/lib/app-version.ts",
     documentedSource:
-      "`.env.local` for next dev/build; not exposed by the production stack",
+      "`.env.local` for next dev/build; not exposed by either production target",
     notes:
       "Used after APP_VERSION and before package.json; inlined at build time when referenced by client code.",
     expectation: "a version string",
@@ -392,8 +392,9 @@ export const serverVariables = {
     capability: "lifecycle",
     schema: z.string().optional(),
     secret: false,
-    consumer: "Next.js (set by the Dockerfile and docker-compose.prod.yml)",
-    documentedSource: "`Dockerfile` and `docker-compose.prod.yml`",
+    consumer: "Next.js (set by the Dockerfile, Compose, or Railway IaC)",
+    documentedSource:
+      "`Dockerfile` and `docker-compose.prod.yml` (AWS); `.railway/railway.ts` (Railway)",
     hostTemplate: false,
     expectation: "a truthy string enabling the app's own SIGTERM handler",
   },
