@@ -10,7 +10,7 @@ import {
 } from "railway/iac";
 
 export default defineRailway((ctx) => {
-  const appData = volume("app-db-data", { sizeMB: 10_240 });
+  const appData = volume("app-db-data", { sizeMB: 1_000 });
   const appDatabase = service("app-db", {
     source: image("postgres:17-alpine"),
     deploy: { restartPolicyType: "ALWAYS" },
@@ -27,7 +27,7 @@ export default defineRailway((ctx) => {
   });
 
   const analyticalData = volume("intermediate-db-data", {
-    sizeMB: 10_240,
+    sizeMB: 2_000,
   });
 
   // This custom Postgres image preserves the production stack's split between
